@@ -105,11 +105,11 @@ func (t *Temp) createPageHandler(route string, eTags map[string]string) pageHand
 			eTagPath = filepath.Join(route, PAGE_BODY_OUT_FILE)
 			pagePath = filepath.Join(HTML_OUT_DIR, eTagPath)
 		}
-		// NOTE: temporary while hx-boost overide broken
-		// handleBPage := func() {
-		// 	handlePage()
-		// 	setBoostHeaders(w)
-		// }
+
+		handleBPage := func() {
+			handlePage()
+			setBoostHeaders(w)
+		}
 
 		handleIndex := func() {
 			logs = fmt.Sprintf("%s %s", logs, "Full-Page")
@@ -117,7 +117,7 @@ func (t *Temp) createPageHandler(route string, eTags map[string]string) pageHand
 			pagePath = filepath.Join(HTML_OUT_DIR, eTagPath)
 		}
 
-		formatRequest(w, r, handlePage, handleIndex, handleIndex, handleIndex)
+		formatRequest(w, r, handlePage, handleBPage, handleIndex, handleIndex)
 
 		if eTag := r.Header.Get("If-None-Match"); eTag == eTags[eTagPath] {
 			log.Println(fmt.Sprintf("%s %s %d", logs, pagePath, http.StatusNotModified))
@@ -147,10 +147,10 @@ func (t *Temp) createPageDefaultHandler(route Handler, eTags map[string]string) 
 			t.handleRenderError(err, w, logs)
 		}
 
-		// handleBoostPage := func() {
-		// 	handlePage()
-		// 	setBoostHeaders(w)
-		// }
+		handleBoostPage := func() {
+			handlePage()
+			setBoostHeaders(w)
+		}
 
 		handleIndex := func() {
 			logs = fmt.Sprintf("%s %s", logs, "Full-Page")
@@ -158,8 +158,7 @@ func (t *Temp) createPageDefaultHandler(route Handler, eTags map[string]string) 
 			t.handleRenderError(err, w, logs)
 		}
 
-		formatRequest(w, r, handlePage, handleIndex, handleIndex, handleIndex)
-		// formatRequest(w, r, handlePage, handleBoostPage, handleIndex, handleIndex)
+		formatRequest(w, r, handlePage, handleBoostPage, handleIndex, handleIndex)
 
 		eTag := utils.GenerateETag(buffer.String())
 		t.handleWriter(w, r, eTag, buffer.Bytes(), eTags, logs)
@@ -178,10 +177,10 @@ func (t *Temp) createPageResReqHandler(route Handler, eTags map[string]string) p
 			t.handleRenderError(err, w, logs)
 		}
 
-		// handleBoostPage := func() {
-		// 	handlePage()
-		// 	setBoostHeaders(w)
-		// }
+		handleBoostPage := func() {
+			handlePage()
+			setBoostHeaders(w)
+		}
 
 		handleIndex := func() {
 			logs = fmt.Sprintf("%s %s", logs, "Full-Page")
@@ -189,8 +188,7 @@ func (t *Temp) createPageResReqHandler(route Handler, eTags map[string]string) p
 			t.handleRenderError(err, w, logs)
 		}
 
-		formatRequest(w, r, handlePage, handleIndex, handleIndex, handleIndex)
-		// formatRequest(w, r, handlePage, handleBoostPage, handleIndex, handleIndex)
+		formatRequest(w, r, handlePage, handleBoostPage, handleIndex, handleIndex)
 
 		log.Println(fmt.Sprintf("%s %d", logs, http.StatusOK))
 
@@ -319,7 +317,7 @@ func determineRequest(w http.ResponseWriter, r *http.Request) requestType {
 }
 
 func setBoostHeaders(w http.ResponseWriter) {
-	w.Header().Set("HX-Retarget", "main")
+	w.Header().Set("HX-Retarget", "global main")
 	w.Header().Set("HX-Reswap", "innerHTML transition:true")
 }
 
