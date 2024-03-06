@@ -4,18 +4,20 @@ package temporary
 import (
 )
 
-var IndexList = map[string]IndexDefaultFunc{
+var PathToIndex = map[string]string{
 }
 
-var PageRenderList = []RenderDefault{
+var Index = map[string]IndexProps{
 }
 
-var RouteRenderList = []RenderDefault{
-	
+var PageStatic = []PageProps{
 }
 
-var PageHandleList = []Handler{
+var PageDynamic = []PageProps{
 }
 
-var RouteHandleList = []Handler{
+var RouteStatic = []RouteProps{
+}
+
+var RouteDynamic = []RouteProps{
 }

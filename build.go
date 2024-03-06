@@ -8,6 +8,7 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -15,6 +16,7 @@ import (
 
 	"calebsideras.com/temporary/temporary/utils"
 	"github.com/a-h/templ"
+	"html/template"
 )
 
 type tempDir struct {
@@ -52,10 +54,10 @@ func (t *Temp) Build() {
 	printDirectoryStructure(dirFiles)
 
 	fmt.Println("-------------------------EXTRACTING YOUR CODE-------------------------")
-	imports, indexGroup, pageRenderFunctions, pageHandleFunctions, routeRenderFunctions, routeHandleFunctions := getSortedFunctions(dirFiles, APP_DIR, PROJECT_PACKAGE)
+	imports, pathToIndex, indexSD, pageStatic, pageDynamic, routeStatic, routeDynamic := getSortedFunctions(dirFiles)
 
 	fmt.Println("-----------------------RENDERING SORTED FUNCTIONS----------------------")
-	code, err := renderSortedFunctions(imports, indexGroup, pageRenderFunctions, pageHandleFunctions, routeRenderFunctions, routeHandleFunctions)
+	code, err := renderSortedFunctions(imports, pathToIndex, indexSD, pageStatic, pageDynamic, routeStatic, routeDynamic)
 	if err != nil {
 		panic(err)
 	}
@@ -130,31 +132,48 @@ func printDirectoryStructure(dirFiles map[string]map[string][]tempDir) {
 	}
 }
 
-type sortedFunctions struct {
-	indexGroup           map[string]string
-	routeRenderFunctions []string
-	routeHandleFunctions []string
-	pageRenderFunctions  []string
-	pageHandleFunctions  []string
-	imports              utils.StringSet
+type sortedFunctionsByFunctionality struct {
+	imports            map[string]string
+	indexStaticDynamic map[string]string
+	pathToIndex        map[string]string
+	routeStatic        []string
+	routeDynamic       []string
+	pageStatic         []string
+	pageDynamic        []string
 }
 
-func getSortedFunctions(dirFiles map[string]map[string][]tempDir, startDir string, packageDir string) (utils.StringSet, []string, []string, []string, []string, []string) {
+type sortedFunctionsByParams struct {
+	indexGroup map[string]string
+	imports    map[string]string
+	resReqDep  []string // Response, Request, Dependency
+	resReq     []string // Response, Request
+	dep        []string // Dependency
+	def        []string // no params
+}
 
-	var indexGroup map[string]string = make(map[string]string)
-	var routeRenderFunctions []string
-	var routeHandleFunctions []string
-	var pageRenderFunctions []string
-	var pageHandleFunctions []string
-	imports := utils.NewStringSet()
+type funcConfig struct {
+	funcName string
+	HandleType
+}
 
-	var sf sortedFunctions = sortedFunctions{
-		indexGroup,
-		routeRenderFunctions,
-		routeHandleFunctions,
-		pageRenderFunctions,
-		pageHandleFunctions,
+func getSortedFunctions(dirFiles map[string]map[string][]tempDir) ([]string, []string, []string, []string, []string, []string, []string) {
+
+	var imports map[string]string = make(map[string]string)
+	var indexStatic map[string]string = make(map[string]string)
+	var indexDynamic map[string]string = make(map[string]string)
+	var pageStatic []string
+	var pageDynamic []string
+	var routeStatic []string
+	var routeDynamic []string
+
+	var sf sortedFunctionsByFunctionality = sortedFunctionsByFunctionality{
 		imports,
+		indexStatic,
+		indexDynamic,
+		pageStatic,
+		pageDynamic,
+		routeStatic,
+		routeDynamic,
 	}
 
 	for dir, files := range dirFiles {
@@ -172,29 +191,48 @@ func getSortedFunctions(dirFiles map[string]map[string][]tempDir, startDir strin
 		ndir := dirPostfixSuffixRemoval(dir)
 		ndir = camelToHyphen(ndir)
 
-		leafPath := strings.Replace(ndir, startDir, "", 1)
+		leafPath := strings.Replace(ndir, APP_DIR, "", 1)
 		if leafPath == "" {
 			leafPath = "/"
 		}
 
-		// prevent unnecessary import
+		// prevents unnecessary import
 		needImport := false
+
 		for _, gd := range goFiles {
 			switch gd.FileType {
 			case INDEX_FILE:
-				err := sf.getIndexFunction(gd, packageDir, leafPath)
+				err := sf.setIndexFunction(
+					gd,
+					leafPath,
+					&needImport,
+					funcConfig{EXPORTED_INDEX_STATIC, IndexRender},
+					funcConfig{EXPORTED_INDEX, IndexHandle},
+				)
 				if err != nil {
 					break
 				}
 
 			case PAGE_FILE:
-				err := sf.getPageFunction(gd, leafPath, &needImport)
+				err := sf.setPageFunction(
+					gd,
+					leafPath,
+					&needImport,
+					funcConfig{EXPORTED_PAGE_STATIC, PageRender},
+					funcConfig{EXPORTED_PAGE, PageHandle},
+				)
 				if err != nil {
 					break
 				}
 
 			case ROUTE_FILE:
-				err := sf.getRouteFunction(gd, leafPath, &needImport)
+				err := sf.setRouteFunction(
+					gd,
+					leafPath,
+					&needImport,
+					funcConfig{"", RouteRender},
+					funcConfig{"", RouteHandle},
+				)
 				if err != nil {
 					break
 				}
@@ -203,126 +241,191 @@ func getSortedFunctions(dirFiles map[string]map[string][]tempDir, startDir strin
 		}
 
 		if needImport {
-			sf.imports.Add(`"` + packageDir + dir + `"`)
+			// TODO - fix unecassary import
+			sf.imports[fmt.Sprintf(`"%s%s"`, PROJECT_PACKAGE, dir)] = ""
 		}
 	}
-	var indexGroupFinal []string
-	for path, index := range sf.indexGroup {
-		indexGroupFinal = append(indexGroupFinal, fmt.Sprintf(`"%s" : %s,`, path, index))
+
+	var importFinal []string
+	for key := range sf.imports {
+		importFinal = append(importFinal, key)
 	}
 
-	return sf.imports, indexGroupFinal, sf.pageRenderFunctions, sf.pageHandleFunctions, sf.routeRenderFunctions, sf.routeHandleFunctions
-}
-
-// Gets Index functions - returns soft error
-func (sf *sortedFunctions) getIndexFunction(gd tempDir, packageDir string, leafPath string) error {
-	fmt.Println("   index.go")
-
-	expFns, pkName, err := getExportedFuctions(gd.FilePath)
-	if err != nil {
-		panic(err)
+	var pathToIndexFinal []string
+	for path, index := range sf.pathToIndex {
+		pathToIndexFinal = append(pathToIndexFinal, fmt.Sprintf(`"%s" : "%s",`, path, index))
 	}
 
-	if pkName == "" {
-		return errors.New(fmt.Sprintf("   - No defined package name in %s", gd.FilePath))
-
+	var indexStaticDynamicFinal []string
+	for path, index := range sf.indexStaticDynamic {
+		indexStaticDynamicFinal = append(indexStaticDynamicFinal, fmt.Sprintf(`"%s" : %s,`, path, index))
 	}
 
-	if expFns == nil {
-		return errors.New(fmt.Sprintf("   - No exported functions in %s", gd.FilePath))
-	}
-
-	for expFn, expT := range expFns {
-		if expFn == EXPORTED_INDEX {
-			if expT.Rtn != "templ.Component" {
-				fmt.Printf("   - No Return Type -> func %s\n", expFn)
-				continue
-			}
-			if expT.Recv != "" {
-				fmt.Printf("   - Receiver Type Unsupported-> func %s\n", expFn)
-				continue
-			}
-
-			sf.imports.Add(`"` + packageDir + filepath.Dir(gd.FilePath) + `"`)
-			sf.indexGroup[leafPath] = formatIndexFunction(pkName, expFn)
-			fmt.Printf("   - Extracted -> func %s (%s)\n", expFn, gd.FilePath)
-		}
-	}
-	return nil
-}
-
-// Gets various types of Page functions - returns soft error
-func (sf *sortedFunctions) getPageFunction(gd tempDir, leafPath string, needImport *bool) error {
-	fmt.Println("   page.go")
-
-	expFns, pkName, err := getExportedFuctions(gd.FilePath)
-	if err != nil {
-		panic(err)
-	}
-
-	if pkName == "" {
-		return errors.New(fmt.Sprintf("   - No defined package name in %s", gd.FilePath))
-	}
-
-	if expFns == nil {
-		return errors.New(fmt.Sprintf("   - No exported functions in %s", gd.FilePath))
-	}
-
-	for expFn, expT := range expFns {
-		switch expFn {
-		case EXPORTED_PAGE_STATIC:
-			if expT.Rtn != "templ.Component" {
-				fmt.Printf("   - No Return Type -> func %s\n", expFn)
-				continue
-			}
-			if expT.Recv != "" {
-				fmt.Printf("   - Receiver Type Unsupported -> func %s\n", expFn)
-				continue
-			}
-			if expT.Params != nil {
-				fmt.Printf("   - Parameters in pre-rendered functions Unsupported -> func %s\n", expFn)
-				continue
-			}
-			formatFn := formatRootFunction(pkName, expFn, leafPath)
-			sf.pageRenderFunctions = append(sf.pageRenderFunctions, formatFn)
-			*needImport = true
-			fmt.Printf("   - Extracted -> func %s\n", expFn)
-
-		case EXPORTED_PAGE:
-			if expT.Rtn != "templ.Component" {
-				fmt.Printf("   - No Return Type -> func %s\n", expFn)
-				continue
-			}
-			if expT.Recv != "" {
-				fmt.Printf("   - Receiver Type Unsupported-> func %s\n", expFn)
-				continue
-			}
-			var formatFn string
-			if expT.Params == nil || len(expT.Params) == 0 {
-				formatFn = formatRootHandlerFunction(pkName, expFn, leafPath, "DefaultHandler")
-			} else if len(expT.Params) == 2 && expT.Params[0] == "http.ResponseWriter" && expT.Params[1] == "http.Request" {
-				formatFn = formatRootHandlerFunction(pkName, expFn, leafPath, "ResReqHandler")
-			} else {
-				fmt.Printf("   - Params Unsupported-> func %s\n", expFn)
-				continue
-			}
-
-			sf.pageHandleFunctions = append(sf.pageHandleFunctions, formatFn)
-			*needImport = true
-			fmt.Printf("   - Extracted -> func %s\n", expFn)
-		}
-	}
-	return nil
+	return importFinal, pathToIndexFinal, indexStaticDynamicFinal, sf.pageStatic, sf.pageDynamic, sf.routeStatic, sf.routeDynamic
 }
 
 // Gets various types of Route functions - returns soft error
-func (sf *sortedFunctions) getRouteFunction(gd tempDir, leafPath string, needImport *bool) error {
+func (sf *sortedFunctionsByFunctionality) setRouteFunction(gd tempDir, leafPath string, needImport *bool, static funcConfig, dynamic funcConfig) error {
 	fmt.Println("   route.go")
 
 	expFns, pkName, err := getExportedFuctions(gd.FilePath)
 	if err != nil {
-		panic(err)
+		return err
 	}
+
+	for expFn, expT := range expFns {
+		err := determineFunctionDefinition(expT)
+		if err != nil {
+			fmt.Printf("   - func %s -> %s\n", expFn, err)
+			continue
+		}
+
+		var fnType HandleType
+
+		if strings.HasSuffix(expFn, "_") {
+			fnType = static.HandleType
+		} else {
+			fnType = dynamic.HandleType
+		}
+
+		fnParams, err := determineFunctionParams(expT)
+		if err != nil {
+			fmt.Printf("   - func %s -> %s\n", expFn, err)
+			continue
+		}
+
+		/**
+		 * NOTE: '@fnProps' conforms to type '@RouteProps'
+		 * type RouteProps struct {
+		 *	  Path    string
+		 *	  Handler interface{}
+		 *	  ParamType
+		 * }
+		 **/
+		fnProps := fmt.Sprintf(`{"%s", %s.%s, %d},`, leafPath, pkName, expFn, fnParams)
+
+		sf.addToSortedFunctions(fnType, fnProps, expFn, "", "")
+
+		*needImport = true
+		fmt.Printf("   - Extracted -> func %s\n", expFn)
+	}
+
+	return nil
+}
+
+// Gets various types of Page functions - returns soft error
+func (sf *sortedFunctionsByFunctionality) setPageFunction(gd tempDir, leafPath string, needImport *bool, static funcConfig, dynamic funcConfig) error {
+	fmt.Println("   page.go")
+
+	expFns, pkName, err := getExportedFuctions(gd.FilePath)
+	if err != nil {
+		return err
+	}
+
+	for expFn, expT := range expFns {
+
+		err := determineFunctionDefinition(expT)
+		if err != nil {
+			fmt.Printf("   - func %s -> %s\n", expFn, err)
+			continue
+		}
+
+		fnType, err := determineFunctionType(expFn, static, dynamic)
+		if err != nil {
+			fmt.Printf("   - func %s -> %s\n", expFn, err)
+			continue
+		}
+
+		fnParams, err := determineFunctionParams(expT)
+		if err != nil {
+			fmt.Printf("   - func %s -> %s\n", expFn, err)
+			continue
+		}
+
+		/**
+		 * NOTE: '@fnProps' conforms to type '@PageProps'
+		 * type PageProps struct {
+		 *	  Path    string
+		 *	  Handler interface{}
+		 *	  ParamType
+		 * }
+		 **/
+		fnProps := fmt.Sprintf(`{"%s", %s.%s, %d},`, leafPath, pkName, expFn, fnParams)
+
+		sf.addToSortedFunctions(fnType, fnProps, expFn, "", "")
+
+		*needImport = true
+		fmt.Printf("   - Extracted -> func %s\n", expFn)
+	}
+	return nil
+}
+
+func (sf *sortedFunctionsByFunctionality) setIndexFunction(gd tempDir, leafPath string, needImport *bool, static funcConfig, dynamic funcConfig) error {
+	fmt.Println("   index.go")
+
+	expFns, pkName, err := getExportedFuctions(gd.FilePath)
+	if err != nil {
+		return err
+	}
+
+	for expFn, expT := range expFns {
+
+		err := determineFunctionDefinition(expT)
+		if err != nil {
+			fmt.Printf("   - func %s -> %s\n", expFn, err)
+			continue
+		}
+
+		fnType, err := determineFunctionType(expFn, static, dynamic)
+		if err != nil {
+			fmt.Printf("   - func %s -> %s\n", expFn, err)
+			continue
+		}
+
+		fnParams, err := determineFunctionParams(expT)
+		if err != nil {
+			fmt.Printf("   - func %s -> %s\n", expFn, err)
+			continue
+		}
+
+		indexPath := fmt.Sprintf(
+			strings.Replace(
+				strings.Replace(
+					dirPostfixSuffixRemoval(gd.FilePath),
+					APP_DIR,
+					"",
+					1,
+				),
+				INDEX_FILE,
+				"",
+				1,
+			),
+		)
+
+		if indexPath == "" {
+			indexPath = "/"
+		}
+
+		/**
+		 * NOTE: '@fnProps' conforms to type '@IndexProps'
+		 * type IndexProps struct {
+		 *	  Path    string
+		 *	  Handler interface{}
+		 *	  ParamType
+		 *	  HandleType
+		 * }
+		 **/
+		fnProps := fmt.Sprintf(`{%s.%s, %d, %d}`, pkName, expFn, fnParams, fnType)
+
+		sf.addToSortedFunctions(fnType, fnProps, expFn, indexPath, leafPath)
+
+		*needImport = true
+		fmt.Printf("   - Extracted -> func %s\n", expFn)
+	}
+	return nil
+}
+
+func hasDefinitionError(pkName string, expFns map[string]fnType, gd tempDir) error {
 
 	if pkName == "" {
 		return errors.New(fmt.Sprintf("   - No defined package name in %s", gd.FilePath))
@@ -332,48 +435,70 @@ func (sf *sortedFunctions) getRouteFunction(gd tempDir, leafPath string, needImp
 		return errors.New(fmt.Sprintf("   - No exported functions in %s", gd.FilePath))
 	}
 
-	for expFn, expT := range expFns {
-		if strings.HasSuffix(expFn, "_") {
-			if expT.Rtn != "templ.Component" {
-				fmt.Printf("   - No Return Type -> func %s\n", expFn)
-				continue
-			}
-			if expT.Recv != "" {
-				fmt.Printf("   - Unsupported Receiver Type -> func %s\n", expFn)
-				continue
-			}
-			if expT.Params != nil {
-				fmt.Printf("   - Parameters in Static Functions Unsupported -> func %s\n", expFn)
-				continue
-			}
-			formatFn := formatDefaultFunction(pkName, expFn, strings.TrimSuffix(expFn, "_"), leafPath)
-			sf.routeRenderFunctions = append(sf.routeRenderFunctions, formatFn)
-			*needImport = true
-			fmt.Printf("   - Extracted -> func %s\n", expFn)
-		} else {
-			if expT.Rtn != "templ.Component" {
-				fmt.Printf("   - No Return Type -> func %s\n", expFn)
-				continue
-			}
-			if expT.Recv != "" {
-				fmt.Printf("   - Receiver Type Unsupported-> func %s\n", expFn)
-				continue
-			}
-			var formatFn string
-			if expT.Params == nil || len(expT.Params) == 0 {
-				formatFn = formatHandlerFunction(pkName, expFn, leafPath, expFn, "DefaultHandler")
-			} else if len(expT.Params) == 2 && expT.Params[0] == "http.ResponseWriter" && expT.Params[1] == "http.Request" {
-				formatFn = formatHandlerFunction(pkName, expFn, leafPath, expFn, "ResReqHandler")
-			} else {
-				fmt.Printf("   - Params Unsupported-> func %s\n", expFn)
-				continue
-			}
+	return nil
+}
 
-			sf.routeHandleFunctions = append(sf.routeHandleFunctions, formatFn)
-			*needImport = true
-			fmt.Printf("   - Extracted -> func %s\n", expFn)
-		}
+func (sf *sortedFunctionsByFunctionality) addToSortedFunctions(fnHandle HandleType, fnProps string, expFn string, indexPath string, leafPath string) {
+	switch fnHandle {
+	case IndexHandle:
+	case IndexRender:
+		sf.indexStaticDynamic[indexPath] = fnProps
+		sf.pathToIndex[leafPath] = indexPath
+	case PageHandle:
+		sf.pageDynamic = append(sf.pageDynamic, fnProps)
+	case PageRender:
+		sf.pageStatic = append(sf.pageStatic, fnProps)
+	case RouteHandle:
+		sf.routeDynamic = append(sf.routeDynamic, fnProps)
+	case RouteRender:
+		sf.routeStatic = append(sf.routeStatic, fnProps)
+	case FuncError:
+		fmt.Printf("   - Unsupported -> func %s\n", expFn)
 	}
+}
+
+func determineFunctionType(expFn string, static funcConfig, dynamic funcConfig) (HandleType, error) {
+
+	var handleType HandleType
+
+	switch expFn {
+	case static.funcName:
+		handleType = static.HandleType
+	case dynamic.funcName:
+		handleType = dynamic.HandleType
+	default:
+		return FuncError, errors.New(fmt.Sprintf("Unsupported Function Type -> %s", expFn))
+	}
+
+	return handleType, nil
+}
+
+func determineFunctionParams(expT fnType) (ParamType, error) {
+	var param ParamType
+	if expT.Params == nil || len(expT.Params) == 0 {
+		param = def
+	} else if len(expT.Params) == 1 && expT.Params[0] == "userStruct" {
+		param = dep
+	} else if len(expT.Params) == 2 && expT.Params[0] == "http.ResponseWriter" && expT.Params[1] == "http.Request" {
+		param = resReq
+	} else if len(expT.Params) == 3 && expT.Params[0] == "http.ResponseWriter" && expT.Params[1] == "http.Request" && expT.Params[2] == "userStruct" {
+		param = resReqDep
+	} else {
+		return paramErr, errors.New(fmt.Sprintf("Unsupported Function Params -> %s", expT.Params))
+	}
+	return param, nil
+}
+
+func determineFunctionDefinition(expT fnType) error {
+
+	if expT.Rtn != "templ.Component" {
+		return errors.New(fmt.Sprintf("Unsupported Return Type -> %s", expT.Rtn))
+	}
+
+	if expT.Recv != "" {
+		return errors.New(fmt.Sprintf("Unsupported Receiver Type -> %s", expT.Recv))
+	}
+
 	return nil
 }
 
@@ -381,7 +506,7 @@ func getExportedFuctions(path string) (map[string]fnType, string, error) {
 
 	node, err := getAstVals(path)
 	if err != nil {
-		return nil, "", err
+		return nil, "", errors.New(fmt.Sprintf("   - Error parsing file: %s\n%s", path, err))
 	}
 
 	var pkName string
@@ -449,36 +574,49 @@ func getExportedFuctions(path string) (map[string]fnType, string, error) {
 		}
 		return true
 	})
+
+	if expFns == nil {
+		return nil, "", errors.New(fmt.Sprintf("   - No defined package name in %s", path))
+	}
+
+	if pkName == "" {
+		return nil, "", errors.New(fmt.Sprintf("   - No exported functions in %s", path))
+	}
+
 	return expFns, pkName, nil
 }
 
-func renderSortedFunctions(imports utils.StringSet, indexGroup []string, pageRenderFunctions []string, pageHandleFunctions []string, routeRenderFunctions []string, routeHandleFunctions []string) (string, error) {
+func renderSortedFunctions(imports []string, pathToIndex []string, indexSD []string, pageStatic []string, pageDynamic []string, routeStatic []string, routeDynamic []string) (string, error) {
 
 	code := `
 // Code generated by Temporary; DO NOT EDIT.
 package temporary
 import (
-	` + imports.Join("\n\t") + `
+	` + strings.Join(imports, "\n\t") + `
 )
 
-var IndexList = map[string]IndexDefaultFunc{
-	` + strings.Join(indexGroup, "\n\t") + `
+var PathToIndex = map[string]string{
+	` + strings.Join(pathToIndex, "\n\t") + `
 }
 
-var PageRenderList = []RenderDefault{
-	` + strings.Join(pageRenderFunctions, "\n\t") + `
+var Index = map[string]IndexProps{
+	` + strings.Join(indexSD, "\n\t") + `
 }
 
-var RouteRenderList = []RenderDefault{
-	` + strings.Join(routeRenderFunctions, "\n\t") + `
+var PageStatic = []PageProps{
+	` + strings.Join(pageStatic, "\n\t") + `
 }
 
-var PageHandleList = []Handler{
-	` + strings.Join(pageHandleFunctions, "\n\t") + `
+var PageDynamic = []PageProps{
+	` + strings.Join(pageDynamic, "\n\t") + `
 }
 
-var RouteHandleList = []Handler{
-	` + strings.Join(routeHandleFunctions, "\n\t") + `
+var RouteStatic = []RouteProps{
+	` + strings.Join(routeStatic, "\n\t") + `
+}
+
+var RouteDynamic = []RouteProps{
+	` + strings.Join(routeDynamic, "\n\t") + `
 }
 `
 	err := os.WriteFile("./temporary/definitions.go", []byte(code), 0644)
@@ -493,31 +631,104 @@ func (g *Temp) Render() {
 
 	fmt.Println("------------------------RENDERING STATIC FILES-------------------------")
 
+	r, _ := http.NewRequest("GET", "/", nil)
+	w := DummyResponseWriter{}
+
 	output := ""
+	for path, indexProps := range Index {
 
-	for _, render := range PageRenderList {
+		fmt.Println("Directory:", path)
+		fmt.Println("   -", INDEX_OUT_FILE)
 
-		fmt.Println("Directory:", render.Path)
+		fp, err := utils.CreateFile(filepath.Join(path, INDEX_OUT_FILE), HTML_OUT_DIR)
+		defer fp.Close()
+
+		if err != nil {
+			panic(err)
+		}
+
+		templOut, err := g.invokeHandlerFunction(indexProps.ParamType, indexProps.Handler, w, r)
+		if err != nil {
+			continue
+		}
+
+		err = templOut.Render(templ.WithChildren(context.Background(), utils.PageTemplate()), fp)
+		if err != nil {
+			panic(err)
+		}
+
+		pathAndTagPage, err := readFileAndGenerateETag(HTML_OUT_DIR, filepath.Join(path, PAGE_OUT_FILE))
+		if err != nil {
+			panic(err)
+		}
+
+		output += pathAndTagPage
+
+	}
+
+	for _, pageProps := range PageStatic {
+
+		fmt.Println("Directory:", pageProps.Path)
+		fmt.Println("   -", PAGE_OUT_FILE)
+
+		f, err := utils.CreateFile(filepath.Join(pageProps.Path, PAGE_OUT_FILE), HTML_OUT_DIR)
+		if err != nil {
+			panic(err)
+		}
+		defer f.Close()
+
+		indexPath, ok := PathToIndex[pageProps.Path]
+		if !ok {
+			panic(fmt.Errorf("Could not find an index for path: %s", pageProps.Path))
+		}
+
+		indexProps, ok := Index[indexPath]
+		if !ok {
+			panic(fmt.Errorf("Could not find an index for indexKey: %s derived from path: %s", indexPath, pageProps.Path))
+		}
+
+		pageOut, err := g.invokeHandlerFunction(pageProps.ParamType, pageProps.Handler, w, r)
+		if err != nil {
+			panic(fmt.Errorf("Error invoking page.go func from path: %s", pageProps.Path))
+		}
 
 		// page.html
-		fmt.Println("   -", PAGE_OUT_FILE)
-		fp, err := utils.CreateFile(filepath.Join(render.Path, PAGE_OUT_FILE), HTML_OUT_DIR)
-		if err != nil {
-			panic(err)
+		switch indexProps.HandleType {
+		// case IndexHandle:
+		// 	indexOut, err := g.invokeHandlerFunction(indexProps.ParamType, indexProps.Handler, w, r)
+		// 	if err != nil {
+		// 		panic(fmt.Errorf("Error invoking index.go func from path: %s\n%v", indexPath, err))
+		// 	}
+
+		// 	err = indexOut.Render(templ.WithChildren(context.Background(), pageOut), f)
+		// 	if err != nil {
+		// 		panic(fmt.Errorf("Error rendering index.go from path: %s\n%v", indexPath, err))
+		// 	}
+
+		case IndexRender:
+			// parse ALREADY rendered static file
+			dir := filepath.Clean(filepath.Join(HTML_OUT_DIR, indexPath, INDEX_OUT_FILE))
+			indexTpl, err := template.ParseFiles(dir)
+			if err != nil {
+				panic(fmt.Errorf("Error parsing index.html from path: %s\n%v", dir, err))
+			}
+
+			// convert page templ.Component to template.HTML
+			pageTpl, err := templ.ToGoHTML(context.Background(), pageOut)
+			if err != nil {
+				panic(fmt.Errorf("Error converting page.go output from path: %s to template.HTML\n%v", pageProps.Path, err))
+			}
+
+			// parse & execute
+			_, err = indexTpl.New("page").Parse(string(pageTpl))
+			indexTpl.Execute(f, nil)
+
+			if err != nil {
+				panic(fmt.Errorf("Error converting page.go output from path: %s to template.HTML\n%v", pageProps.Path, err))
+			}
 		}
 
-		if _, ok := IndexList[render.Path]; !ok {
-			panic(errors.New(fmt.Sprintf("Could not find an index for path: %s", render.Path)))
-		}
-
-		pageTemplOut := render.Handler()
-
-		err = IndexList[render.Path]().Render(templ.WithChildren(context.Background(), pageTemplOut), fp)
-		if err != nil {
-			panic(err)
-		}
-
-		pathAndTagPage, err := readFileAndGenerateETag(HTML_OUT_DIR, filepath.Join(render.Path, PAGE_OUT_FILE))
+		pathAndTagPage, err := readFileAndGenerateETag(HTML_OUT_DIR, filepath.Join(pageProps.Path, PAGE_OUT_FILE))
 		if err != nil {
 			panic(err)
 		}
@@ -525,41 +736,48 @@ func (g *Temp) Render() {
 
 		// page-body.html
 		fmt.Println("   -", PAGE_BODY_OUT_FILE)
-		f, err := utils.CreateFile(filepath.Join(render.Path, PAGE_BODY_OUT_FILE), HTML_OUT_DIR)
+
+		fb, err := utils.CreateFile(filepath.Join(pageProps.Path, PAGE_BODY_OUT_FILE), HTML_OUT_DIR)
+		if err != nil {
+			panic(err)
+		}
+		defer fb.Close()
+
+		err = pageOut.Render(context.Background(), fb)
 		if err != nil {
 			panic(err)
 		}
 
-		err = pageTemplOut.Render(context.Background(), f)
-		if err != nil {
-			panic(err)
-		}
-
-		pathAndTagBody, err := readFileAndGenerateETag(HTML_OUT_DIR, filepath.Join(render.Path, PAGE_BODY_OUT_FILE))
+		pathAndTagBody, err := readFileAndGenerateETag(HTML_OUT_DIR, filepath.Join(pageProps.Path, PAGE_BODY_OUT_FILE))
 		if err != nil {
 			panic(err)
 		}
 		output += pathAndTagBody
-
 	}
 
-	for _, render := range RouteRenderList {
+	for _, routeProps := range RouteStatic {
 
-		fmt.Println("Directory:", render.Path)
-
-		// route.html
+		fmt.Println("Directory:", routeProps.Path)
 		fmt.Println("   -", ROUTE_OUT_FILE)
-		f, err := utils.CreateFile(filepath.Join(render.Path, ROUTE_OUT_FILE), HTML_OUT_DIR)
+
+		fp, err := utils.CreateFile(filepath.Join(routeProps.Path, ROUTE_OUT_FILE), HTML_OUT_DIR)
+		defer fp.Close()
+
 		if err != nil {
 			panic(err)
 		}
 
-		err = render.Handler().Render(context.Background(), f)
+		templOut, err := g.invokeHandlerFunction(routeProps.ParamType, routeProps.Handler, w, r)
+		if err != nil {
+			continue
+		}
+
+		err = templOut.Render(context.Background(), fp)
 		if err != nil {
 			panic(err)
 		}
 
-		pathAndTagBody, err := readFileAndGenerateETag(HTML_OUT_DIR, filepath.Join(render.Path, ROUTE_OUT_FILE))
+		pathAndTagBody, err := readFileAndGenerateETag(HTML_OUT_DIR, filepath.Join(routeProps.Path, ROUTE_OUT_FILE))
 		if err != nil {
 			panic(err)
 		}
@@ -580,6 +798,27 @@ func (g *Temp) Render() {
 
 }
 
+func (g Temp) invokeHandlerFunction(params ParamType, fn interface{}, w DummyResponseWriter, r *http.Request) (templ.Component, error) {
+
+	var templOut templ.Component
+	switch params {
+	case def:
+		templOut = fn.(func() templ.Component)()
+	case dep:
+		templOut = fn.(func(d interface{}) templ.Component)(g.dependency)
+	case resReq:
+		templOut = fn.(func(w http.ResponseWriter, r *http.Request) templ.Component)(w, r)
+	case resReqDep:
+		templOut = fn.(func(w http.ResponseWriter, r *http.Request, d interface{}) templ.Component)(w, r, g.dependency)
+	case paramErr:
+		return nil, errors.New(fmt.Sprintf("something"))
+	default:
+		return nil, errors.New(fmt.Sprintf("something"))
+	}
+
+	return templOut, nil
+}
+
 func readFileAndGenerateETag(outDir string, filePath string) (string, error) {
 
 	content, err := os.ReadFile(filepath.Join(outDir, filePath))
@@ -589,36 +828,6 @@ func readFileAndGenerateETag(outDir string, filePath string) (string, error) {
 	output := fmt.Sprintf("%s:%s\n", filePath, utils.GenerateETag(string(content)))
 	return output, nil
 
-}
-
-func formatDefaultFunction(pkName string, fnName string, pathName string, leafPath string) string {
-	if leafPath == "/" {
-		leafPath = ""
-	}
-	return `{"` + leafPath + `/` + strings.ToLower(pathName) + `", ` + pkName + `.` + fnName + `},`
-}
-
-func formatRootFunction(pkName string, fnName string, leafPath string) string {
-	return `{"` + leafPath + `", ` + pkName + `.` + fnName + `},`
-}
-
-func formatRootHandlerFunction(pkName string, fnName string, leafPath string, fnType string) string {
-	return `{"` + leafPath + `", ` + pkName + `.` + fnName + `, ` + fnType + `},`
-}
-
-func formatHandlerFunction(pkName string, fnName string, leafPath string, pathName string, fnType string) string {
-	if leafPath == "/" {
-		leafPath = ""
-	}
-	return `{"` + leafPath + `/` + strings.ToLower(pathName) + `", ` + pkName + `.` + fnName + `, ` + fnType + `},`
-}
-
-func formatIndexFunction(pkName string, fnName string) string {
-	return fmt.Sprintf("%s.%s", pkName, fnName)
-}
-
-func formatCustomFunction(pkName string, fnName string) string {
-	return `{` + pkName + `.` + fnName + `},`
 }
 
 func getAstVals(path string) (*ast.File, error) {

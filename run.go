@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"reflect"
+	// "reflect"
 	"strings"
 
 	"calebsideras.com/temporary/temporary/utils"
@@ -38,7 +38,7 @@ func (t *Temp) Run(r *mux.Router, port string) {
 
 func (t *Temp) handleRoutes(r *mux.Router, eTags map[string]string) {
 	fmt.Println("Function Type: Page - Render")
-	t.handlePageRender(r, eTags)
+	t.handlePageStatic(r, eTags)
 	fmt.Println("Function Type: Page - Handle")
 	t.handlePageHandles(r, eTags)
 	fmt.Println("Function Type: Route - Handle")
@@ -48,9 +48,10 @@ func (t *Temp) handleRoutes(r *mux.Router, eTags map[string]string) {
 }
 
 // PageRenderList
-func (t *Temp) handlePageRender(r *mux.Router, eTags map[string]string) {
-	for _, route := range PageRenderList {
-		currRoute := route.Path
+func (t *Temp) handlePageStatic(r *mux.Router, eTags map[string]string) {
+	for _, pageProps := range PageStatic {
+		// loop variable capture? can be removed if updated to go 1.23?
+		currRoute := pageProps.Path
 		fmt.Printf("   - %s\n", currRoute)
 		r.HandleFunc(currRoute+"{slash:/?}", t.createPageHandler(currRoute, eTags))
 	}
@@ -58,39 +59,39 @@ func (t *Temp) handlePageRender(r *mux.Router, eTags map[string]string) {
 
 // PageHandleList
 func (t *Temp) handlePageHandles(r *mux.Router, eTags map[string]string) {
-	for _, route := range PageHandleList {
-		currRoute := route
-		fmt.Printf("   - %s\n", currRoute.Path)
-		switch currRoute.HandleType {
-		case DefaultHandler:
-			r.HandleFunc(currRoute.Path+"{slash:/?}", t.createPageDefaultHandler(currRoute, eTags))
-		case ResReqHandler:
-			r.HandleFunc(currRoute.Path+"{slash:/?}", t.createPageResReqHandler(currRoute, eTags))
-		}
-	}
+	// for _, route := range PageHandleList {
+	// 	currRoute := route
+	// 	fmt.Printf("   - %s\n", currRoute.Path)
+	// 	switch currRoute.HandleType {
+	// 	case Default:
+	// 		r.HandleFunc(currRoute.Path+"{slash:/?}", t.createPageDefaultHandler(currRoute, eTags))
+	// 	case ResReq:
+	// 		r.HandleFunc(currRoute.Path+"{slash:/?}", t.createPageResReqHandler(currRoute, eTags))
+	// 	}
+	// }
 }
 
 // RouteHandleList
 func (t *Temp) handleRouteHandles(r *mux.Router, eTags map[string]string) {
-	for _, route := range RouteHandleList {
-		currRoute := route
-		fmt.Printf("   - %s\n", currRoute.Path)
-		switch route.HandleType {
-		case DefaultHandler:
-			r.HandleFunc(currRoute.Path+"{slash:/?}", t.createRouteDefaultHandler(currRoute, eTags))
-		case ResReqHandler:
-			r.HandleFunc(currRoute.Path+"{slash:/?}", t.createRouteResReqHandler(currRoute, eTags))
-		}
-	}
+	// for _, route := range RouteHandleList {
+	// 	currRoute := route
+	// 	fmt.Printf("   - %s\n", currRoute.Path)
+	// 	switch route.HandleType {
+	// case Default:
+	// 	r.HandleFunc(currRoute.Path+"{slash:/?}", t.createRouteDefaultHandler(currRoute, eTags))
+	// case ResReq:
+	// 	r.HandleFunc(currRoute.Path+"{slash:/?}", t.createRouteResReqHandler(currRoute, eTags))
+	// 	}
+	// }
 }
 
 // RouteRenderList
 func (t *Temp) handleRouteRender(r *mux.Router, eTags map[string]string) {
-	for _, route := range RouteRenderList {
-		currRoute := route
-		fmt.Printf("   - %s\n", currRoute.Path)
-		r.HandleFunc(currRoute.Path+"{slash:/?}", t.createRouteRenderHandler(currRoute.Path, eTags))
-	}
+	// for _, route := range RouteRenderList {
+	// 	currRoute := route
+	// 	fmt.Printf("   - %s\n", currRoute.Path)
+	// 	r.HandleFunc(currRoute.Path+"{slash:/?}", t.createRouteRenderHandler(currRoute.Path, eTags))
+	// }
 }
 
 // PageRender
@@ -154,8 +155,8 @@ func (t *Temp) createPageDefaultHandler(route Handler, eTags map[string]string) 
 
 		handleIndex := func() {
 			logs = fmt.Sprintf("%s %s", logs, "Full-Page")
-			err := IndexList[route.Path]().Render(templ.WithChildren(r.Context(), route.Handler.(func() templ.Component)()), &buffer)
-			t.handleRenderError(err, w, logs)
+			// err := IndexList[route.Path]().Render(templ.WithChildren(r.Context(), route.Handler.(func() templ.Component)()), &buffer)
+			// t.handleRenderError(err, w, logs)
 		}
 
 		formatRequest(w, r, handlePage, handleBoostPage, handleIndex, handleIndex)
@@ -173,6 +174,8 @@ func (t *Temp) createPageResReqHandler(route Handler, eTags map[string]string) p
 
 		handlePage := func() {
 			logs = fmt.Sprintf("%s %s", logs, "Partial")
+			// NOTE
+			// type assertion EVERY request will slow shit down - make this known at build
 			err := route.Handler.(func(http.ResponseWriter, *http.Request) templ.Component)(w, r).Render(r.Context(), &buffer)
 			t.handleRenderError(err, w, logs)
 		}
@@ -184,8 +187,8 @@ func (t *Temp) createPageResReqHandler(route Handler, eTags map[string]string) p
 
 		handleIndex := func() {
 			logs = fmt.Sprintf("%s %s", logs, "Full-Page")
-			err := IndexList[route.Path]().Render(templ.WithChildren(r.Context(), route.Handler.(func(http.ResponseWriter, *http.Request) templ.Component)(w, r)), &buffer)
-			t.handleRenderError(err, w, logs)
+			// err := IndexList[route.Path]().Render(templ.WithChildren(r.Context(), route.Handler.(func(http.ResponseWriter, *http.Request) templ.Component)(w, r)), &buffer)
+			// t.handleRenderError(err, w, logs)
 		}
 
 		formatRequest(w, r, handlePage, handleBoostPage, handleIndex, handleIndex)
@@ -300,18 +303,18 @@ func determineRequest(w http.ResponseWriter, r *http.Request) requestType {
 		return HxGet_Page
 	}
 
-	htmxUrl, err := utils.LastElementOfURL(utils.GetHtmxRequestURL(r))
+	_, err := utils.LastElementOfURL(utils.GetHtmxRequestURL(r))
 	if err != nil {
 		return ErrorRequest
 	}
 
-	if _, ok := IndexList[htmxUrl]; !ok {
-		return HxBoost_Index
-	}
+	// if _, ok := IndexList[htmxUrl]; !ok {
+	// 	return HxBoost_Index
+	// }
 
-	if reflect.ValueOf(IndexList[htmxUrl]).Pointer() == reflect.ValueOf(IndexList[r.URL.Path]).Pointer() {
-		return HxBoost_Page
-	}
+	// if reflect.ValueOf(IndexList[htmxUrl]).Pointer() == reflect.ValueOf(IndexList[r.URL.Path]).Pointer() {
+	// 	return HxBoost_Page
+	// }
 
 	return HxBoost_Index
 }
