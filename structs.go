@@ -71,6 +71,7 @@ type PageProps struct {
 }
 
 type IndexProps struct {
+	Path    string
 	Handler interface{}
 	ParamType
 	HandleType

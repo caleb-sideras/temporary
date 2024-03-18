@@ -1,8 +1,8 @@
 package main
 
 import (
-// "io"
-// "os"
+	"io"
+	"os"
 )
 
 //go:generate go run main.go
@@ -25,4 +25,41 @@ func main() {
 	// if err != nil {
 	// 	panic(err)
 	// }
+
+	// Default run.go funcs
+	runInputFile, err := os.Open("../run2.txt")
+	if err != nil {
+		panic(err)
+	}
+	defer runInputFile.Close()
+
+	runOutputFile, err := os.Create("../run2.go")
+	if err != nil {
+		panic(err)
+	}
+	defer runOutputFile.Close()
+
+	_, err = io.Copy(runOutputFile, runInputFile)
+	if err != nil {
+		panic(err)
+	}
+
+	// Default Temp struct type
+	tempInputFile, err := os.Open("../temp.txt")
+	if err != nil {
+		panic(err)
+	}
+	defer tempInputFile.Close()
+
+	tempOnputFile, err := os.Create("../temp.go")
+	if err != nil {
+		panic(err)
+	}
+	defer tempOnputFile.Close()
+
+	_, err = io.Copy(tempOnputFile, tempInputFile)
+	if err != nil {
+		panic(err)
+	}
+
 }

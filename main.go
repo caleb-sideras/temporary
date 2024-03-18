@@ -1,12 +1,9 @@
 package temporary
 
-type Temp struct {
-	dependency interface{}
-}
-
-func NewTemp(dep interface{}) *Temp {
-	return &Temp{dep}
-}
+// func NewTemp(dep interface{}) *Temp {
+// 	DetermineType(dep)
+// 	return &Temp{dep}
+// }
 
 const (
 	DIR      = "/"

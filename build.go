@@ -2,21 +2,15 @@ package temporary
 
 import (
 	"bytes"
-	"context"
 	"errors"
 	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
-	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"unicode"
-
-	"calebsideras.com/temporary/temporary/utils"
-	"github.com/a-h/templ"
-	"html/template"
 )
 
 type tempDir struct {
@@ -44,7 +38,13 @@ const (
 	PROJECT_PACKAGE = "calebsideras.com/temporary/"
 )
 
+var (
+	DEPENDENCY_NAME = ""
+)
+
 func (t *Temp) Build() {
+
+	DEPENDENCY_NAME = t.dependencyName
 
 	fmt.Println("--------------------------WALKING DIRECTORY--------------------------")
 	dirFiles, err := walkDirectoryStructure(APP_DIR)
@@ -282,6 +282,8 @@ func (sf *sortedFunctionsByFunctionality) setRouteFunction(gd tempDir, leafPath 
 
 		var fnType HandleType
 
+		expFnPath := camelToHyphen(strings.TrimSuffix(expFn, "_"))
+
 		if strings.HasSuffix(expFn, "_") {
 			fnType = static.HandleType
 		} else {
@@ -302,7 +304,7 @@ func (sf *sortedFunctionsByFunctionality) setRouteFunction(gd tempDir, leafPath 
 		 *	  ParamType
 		 * }
 		 **/
-		fnProps := fmt.Sprintf(`{"%s", %s.%s, %d},`, leafPath, pkName, expFn, fnParams)
+		fnProps := fmt.Sprintf(`{"%s/%s", %s.%s, %d},`, leafPath, expFnPath, pkName, expFn, fnParams)
 
 		sf.addToSortedFunctions(fnType, fnProps, expFn, "", "")
 
@@ -415,7 +417,7 @@ func (sf *sortedFunctionsByFunctionality) setIndexFunction(gd tempDir, leafPath 
 		 *	  HandleType
 		 * }
 		 **/
-		fnProps := fmt.Sprintf(`{%s.%s, %d, %d}`, pkName, expFn, fnParams, fnType)
+		fnProps := fmt.Sprintf(`{"%s", %s.%s, %d, %d}`, indexPath, pkName, expFn, fnParams, fnType)
 
 		sf.addToSortedFunctions(fnType, fnProps, expFn, indexPath, leafPath)
 
@@ -477,11 +479,11 @@ func determineFunctionParams(expT fnType) (ParamType, error) {
 	var param ParamType
 	if expT.Params == nil || len(expT.Params) == 0 {
 		param = def
-	} else if len(expT.Params) == 1 && expT.Params[0] == "userStruct" {
+	} else if len(expT.Params) == 1 && expT.Params[0] == DEPENDENCY_NAME {
 		param = dep
-	} else if len(expT.Params) == 2 && expT.Params[0] == "http.ResponseWriter" && expT.Params[1] == "http.Request" {
+	} else if len(expT.Params) == 2 && expT.Params[0] == "http.ResponseWriter" && expT.Params[1] == "*http.Request" {
 		param = resReq
-	} else if len(expT.Params) == 3 && expT.Params[0] == "http.ResponseWriter" && expT.Params[1] == "http.Request" && expT.Params[2] == "userStruct" {
+	} else if len(expT.Params) == 3 && expT.Params[0] == "http.ResponseWriter" && expT.Params[1] == "*http.Request" && expT.Params[2] == DEPENDENCY_NAME {
 		param = resReqDep
 	} else {
 		return paramErr, errors.New(fmt.Sprintf("Unsupported Function Params -> %s", expT.Params))
@@ -542,14 +544,20 @@ func getExportedFuctions(path string) (map[string]fnType, string, error) {
 			// Params
 			if x.Type.Params != nil {
 				for _, param := range x.Type.Params.List {
-					for _, name := range param.Names {
-						if isHTTPResponseWriter(param.Type) {
-							fnType.Params = append(fnType.Params, "http.ResponseWriter")
-						} else if isHTTPRequest(param.Type) {
-							fnType.Params = append(fnType.Params, "http.Request")
-						} else {
-							fnType.Params = append(fnType.Params, name.Name)
-						}
+					for _ = range param.Names {
+						exprDetails := ExtractExprDetails(param.Type)
+						fnType.Params = append(fnType.Params, formatParams(exprDetails))
+						// if isHTTPResponseWriter(param.Type) {
+						// 	fmt.Println("http.ResponseWriter", ExtractExprDetails(param.Type))
+						// 	fnType.Params = append(fnType.Params, "http.ResponseWriter")
+						// } else if isHTTPRequest(param.Type) {
+						// 	fmt.Println("http.Request", ExtractExprDetails(param.Type))
+						// 	fnType.Params = append(fnType.Params, "http.Request")
+						// } else {
+						// 	fmt.Println("User Defined", ExtractExprDetails(param.Type))
+						// 	// BUG: adds name of param opposed to name of param type
+						// 	fnType.Params = append(fnType.Params, name.Name)
+						// }
 					}
 				}
 			}
@@ -626,210 +634,6 @@ var RouteDynamic = []RouteProps{
 	return code, nil
 }
 
-// Render() renders all static files defined by the user
-func (g *Temp) Render() {
-
-	fmt.Println("------------------------RENDERING STATIC FILES-------------------------")
-
-	r, _ := http.NewRequest("GET", "/", nil)
-	w := DummyResponseWriter{}
-
-	output := ""
-	for path, indexProps := range Index {
-
-		fmt.Println("Directory:", path)
-		fmt.Println("   -", INDEX_OUT_FILE)
-
-		fp, err := utils.CreateFile(filepath.Join(path, INDEX_OUT_FILE), HTML_OUT_DIR)
-		defer fp.Close()
-
-		if err != nil {
-			panic(err)
-		}
-
-		templOut, err := g.invokeHandlerFunction(indexProps.ParamType, indexProps.Handler, w, r)
-		if err != nil {
-			continue
-		}
-
-		err = templOut.Render(templ.WithChildren(context.Background(), utils.PageTemplate()), fp)
-		if err != nil {
-			panic(err)
-		}
-
-		pathAndTagPage, err := readFileAndGenerateETag(HTML_OUT_DIR, filepath.Join(path, PAGE_OUT_FILE))
-		if err != nil {
-			panic(err)
-		}
-
-		output += pathAndTagPage
-
-	}
-
-	for _, pageProps := range PageStatic {
-
-		fmt.Println("Directory:", pageProps.Path)
-		fmt.Println("   -", PAGE_OUT_FILE)
-
-		f, err := utils.CreateFile(filepath.Join(pageProps.Path, PAGE_OUT_FILE), HTML_OUT_DIR)
-		if err != nil {
-			panic(err)
-		}
-		defer f.Close()
-
-		indexPath, ok := PathToIndex[pageProps.Path]
-		if !ok {
-			panic(fmt.Errorf("Could not find an index for path: %s", pageProps.Path))
-		}
-
-		indexProps, ok := Index[indexPath]
-		if !ok {
-			panic(fmt.Errorf("Could not find an index for indexKey: %s derived from path: %s", indexPath, pageProps.Path))
-		}
-
-		pageOut, err := g.invokeHandlerFunction(pageProps.ParamType, pageProps.Handler, w, r)
-		if err != nil {
-			panic(fmt.Errorf("Error invoking page.go func from path: %s", pageProps.Path))
-		}
-
-		// page.html
-		switch indexProps.HandleType {
-		// case IndexHandle:
-		// 	indexOut, err := g.invokeHandlerFunction(indexProps.ParamType, indexProps.Handler, w, r)
-		// 	if err != nil {
-		// 		panic(fmt.Errorf("Error invoking index.go func from path: %s\n%v", indexPath, err))
-		// 	}
-
-		// 	err = indexOut.Render(templ.WithChildren(context.Background(), pageOut), f)
-		// 	if err != nil {
-		// 		panic(fmt.Errorf("Error rendering index.go from path: %s\n%v", indexPath, err))
-		// 	}
-
-		case IndexRender:
-			// parse ALREADY rendered static file
-			dir := filepath.Clean(filepath.Join(HTML_OUT_DIR, indexPath, INDEX_OUT_FILE))
-			indexTpl, err := template.ParseFiles(dir)
-			if err != nil {
-				panic(fmt.Errorf("Error parsing index.html from path: %s\n%v", dir, err))
-			}
-
-			// convert page templ.Component to template.HTML
-			pageTpl, err := templ.ToGoHTML(context.Background(), pageOut)
-			if err != nil {
-				panic(fmt.Errorf("Error converting page.go output from path: %s to template.HTML\n%v", pageProps.Path, err))
-			}
-
-			// parse & execute
-			_, err = indexTpl.New("page").Parse(string(pageTpl))
-			indexTpl.Execute(f, nil)
-
-			if err != nil {
-				panic(fmt.Errorf("Error converting page.go output from path: %s to template.HTML\n%v", pageProps.Path, err))
-			}
-		}
-
-		pathAndTagPage, err := readFileAndGenerateETag(HTML_OUT_DIR, filepath.Join(pageProps.Path, PAGE_OUT_FILE))
-		if err != nil {
-			panic(err)
-		}
-		output += pathAndTagPage
-
-		// page-body.html
-		fmt.Println("   -", PAGE_BODY_OUT_FILE)
-
-		fb, err := utils.CreateFile(filepath.Join(pageProps.Path, PAGE_BODY_OUT_FILE), HTML_OUT_DIR)
-		if err != nil {
-			panic(err)
-		}
-		defer fb.Close()
-
-		err = pageOut.Render(context.Background(), fb)
-		if err != nil {
-			panic(err)
-		}
-
-		pathAndTagBody, err := readFileAndGenerateETag(HTML_OUT_DIR, filepath.Join(pageProps.Path, PAGE_BODY_OUT_FILE))
-		if err != nil {
-			panic(err)
-		}
-		output += pathAndTagBody
-	}
-
-	for _, routeProps := range RouteStatic {
-
-		fmt.Println("Directory:", routeProps.Path)
-		fmt.Println("   -", ROUTE_OUT_FILE)
-
-		fp, err := utils.CreateFile(filepath.Join(routeProps.Path, ROUTE_OUT_FILE), HTML_OUT_DIR)
-		defer fp.Close()
-
-		if err != nil {
-			panic(err)
-		}
-
-		templOut, err := g.invokeHandlerFunction(routeProps.ParamType, routeProps.Handler, w, r)
-		if err != nil {
-			continue
-		}
-
-		err = templOut.Render(context.Background(), fp)
-		if err != nil {
-			panic(err)
-		}
-
-		pathAndTagBody, err := readFileAndGenerateETag(HTML_OUT_DIR, filepath.Join(routeProps.Path, ROUTE_OUT_FILE))
-		if err != nil {
-			panic(err)
-		}
-		output += pathAndTagBody
-
-	}
-
-	file, err := utils.CreateFile(ETAG_FILE, HTML_OUT_DIR)
-	defer file.Close()
-	if err != nil {
-		panic(err)
-	}
-
-	_, err = file.Write([]byte(output))
-	if err != nil {
-		panic(err)
-	}
-
-}
-
-func (g Temp) invokeHandlerFunction(params ParamType, fn interface{}, w DummyResponseWriter, r *http.Request) (templ.Component, error) {
-
-	var templOut templ.Component
-	switch params {
-	case def:
-		templOut = fn.(func() templ.Component)()
-	case dep:
-		templOut = fn.(func(d interface{}) templ.Component)(g.dependency)
-	case resReq:
-		templOut = fn.(func(w http.ResponseWriter, r *http.Request) templ.Component)(w, r)
-	case resReqDep:
-		templOut = fn.(func(w http.ResponseWriter, r *http.Request, d interface{}) templ.Component)(w, r, g.dependency)
-	case paramErr:
-		return nil, errors.New(fmt.Sprintf("something"))
-	default:
-		return nil, errors.New(fmt.Sprintf("something"))
-	}
-
-	return templOut, nil
-}
-
-func readFileAndGenerateETag(outDir string, filePath string) (string, error) {
-
-	content, err := os.ReadFile(filepath.Join(outDir, filePath))
-	if err != nil {
-		return "", err
-	}
-	output := fmt.Sprintf("%s:%s\n", filePath, utils.GenerateETag(string(content)))
-	return output, nil
-
-}
-
 func getAstVals(path string) (*ast.File, error) {
 	_, err := os.ReadFile(path)
 	if err != nil {
@@ -859,6 +663,17 @@ func isHTTPResponseWriter(expr ast.Expr) bool {
 	return x.Name == "http" && selector.Sel.Name == "ResponseWriter"
 }
 
+func formatParams(exprDetails ExprDetails) string {
+	var param string
+	if exprDetails.IsPointer {
+		param = "*" + exprDetails.PackageName + "." + exprDetails.Selector
+	} else {
+		param = exprDetails.PackageName + "." + exprDetails.Selector
+	}
+
+	return param
+}
+
 func isHTTPRequest(expr ast.Expr) bool {
 	// Check for *http.Request
 	starExpr, ok := expr.(*ast.StarExpr)
@@ -878,6 +693,40 @@ func isHTTPRequest(expr ast.Expr) bool {
 
 	// Check if the type is "http" package and "Request" identifier
 	return x.Name == "http" && selector.Sel.Name == "Request"
+}
+
+func ExtractExprDetails(expr ast.Expr) ExprDetails {
+	var details ExprDetails
+
+	switch e := expr.(type) {
+	// since all paramTypes will be defined in separate packages, we don't really need this
+	case *ast.Ident:
+		details.Name = e.Name
+	case *ast.SelectorExpr:
+		if ident, ok := e.X.(*ast.Ident); ok {
+			details.PackageName = ident.Name
+		}
+		details.Name = e.Sel.Name
+		details.Selector = e.Sel.Name
+	case *ast.StarExpr:
+		details.IsPointer = true
+		// Extract details from the pointed type.
+		pointedDetails := ExtractExprDetails(e.X)
+		// Merge details from pointed type.
+		details.Name = pointedDetails.Name
+		details.Selector = pointedDetails.Selector
+		details.PackageName = pointedDetails.PackageName
+	}
+
+	return details
+}
+
+// ExprDetails captures the extracted details from an ast.Expr.
+type ExprDetails struct {
+	Name        string // The identifier name or the selector's identifier.
+	Selector    string // The name of the selector, if applicable.
+	IsPointer   bool   // True if the expression is a pointer.
+	PackageName string // The package name, if applicable.
 }
 
 func dirPostfixSuffixRemoval(path string) string {
