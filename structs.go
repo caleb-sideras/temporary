@@ -93,13 +93,3 @@ func (d DummyResponseWriter) Write(bytes []byte) (int, error) {
 
 func (d DummyResponseWriter) WriteHeader(statusCode int) {
 }
-
-// ok caleb im not sure what you cooked here but it seems we need SEPARATE wrapper handlers to accomdate each of these types. these types will be determind by the AST, not type assertion, so we can do some stupid shit. relax, these gentics look cool tho
-
-// type Default func() templ.Component
-
-// type ResReq func(w http.ResponseWriter, r *http.Request) templ.Component
-
-// type Dep[Dependency any] func(d Dependency) templ.Component
-
-// type ResReqUserDep[Dependency any] func(w http.ResponseWriter, r *http.Request, d Dependency) templ.Component

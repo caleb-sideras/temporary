@@ -8,14 +8,14 @@ import "calebsideras.com/temporary/src/utils"
 
 // TEMPORARY STRUCT
 type Temp struct {
-	dependency utils.Hello3
+	dependency utils.Config
 	dependencyName string
 }
 
 		
 // POINTER TO STRUCT
 func NewTemp(dep interface{}) *Temp {
-	t := &Temp{dependency: dep.(utils.Hello3)}
+	t := &Temp{dependency: dep.(utils.Config)}
 	t.init(dep)
 	return t
 }

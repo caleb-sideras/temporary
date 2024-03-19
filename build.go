@@ -45,6 +45,7 @@ var (
 func (t *Temp) Build() {
 
 	DEPENDENCY_NAME = t.dependencyName
+	fmt.Println("t.dependencyName", t.dependencyName, "DEPENDENCY_NAME ", DEPENDENCY_NAME)
 
 	fmt.Println("--------------------------WALKING DIRECTORY--------------------------")
 	dirFiles, err := walkDirectoryStructure(APP_DIR)
@@ -477,6 +478,7 @@ func determineFunctionType(expFn string, static funcConfig, dynamic funcConfig) 
 
 func determineFunctionParams(expT fnType) (ParamType, error) {
 	var param ParamType
+	fmt.Sprintf("DEPENDENCY_NAME", DEPENDENCY_NAME)
 	if expT.Params == nil || len(expT.Params) == 0 {
 		param = def
 	} else if len(expT.Params) == 1 && expT.Params[0] == DEPENDENCY_NAME {

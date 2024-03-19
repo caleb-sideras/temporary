@@ -14,22 +14,22 @@ import (
 )
 	
 
-func getPartialPageBoostFn(partialPageFn func(w http.ResponseWriter, r *http.Request, dep utils.Hello3, buffer *bytes.Buffer)) func(w http.ResponseWriter, r *http.Request, dep utils.Hello3, buffer *bytes.Buffer) {
-	return func(w http.ResponseWriter, r *http.Request, dep utils.Hello3, buffer *bytes.Buffer) {
+func getPartialPageBoostFn(partialPageFn func(w http.ResponseWriter, r *http.Request, dep utils.Config, buffer *bytes.Buffer)) func(w http.ResponseWriter, r *http.Request, dep utils.Config, buffer *bytes.Buffer) {
+	return func(w http.ResponseWriter, r *http.Request, dep utils.Config, buffer *bytes.Buffer) {
 		partialPageFn(w, r, dep, buffer)
 		setBoostHeaders(w)
 	}
 }
 	
 
-func getDynamicPageClosure(page PageProps) (func(w http.ResponseWriter, r *http.Request, dep utils.Hello3, buffer *bytes.Buffer), error) {
+func getDynamicPageClosure(page PageProps) (func(w http.ResponseWriter, r *http.Request, dep utils.Config, buffer *bytes.Buffer), error) {
 
 	pageFn := userFunctionWrapper(page.Handler, page.ParamType)
 	if pageFn == nil {
 		return nil, errors.New("invalid handlerParams")
 	}
 
-	return func(w http.ResponseWriter, r *http.Request, dep utils.Hello3, buffer *bytes.Buffer) {
+	return func(w http.ResponseWriter, r *http.Request, dep utils.Config, buffer *bytes.Buffer) {
 			err := pageFn(w, r, dep).Render(r.Context(), buffer)
 			if err != nil {
 				//set some error stuff
@@ -39,11 +39,11 @@ func getDynamicPageClosure(page PageProps) (func(w http.ResponseWriter, r *http.
 }
 
 
-func getStaticPageClosure(page PageProps) (func(http.ResponseWriter, *http.Request, utils.Hello3, *bytes.Buffer), error) {
+func getStaticPageClosure(page PageProps) (func(http.ResponseWriter, *http.Request, utils.Config, *bytes.Buffer), error) {
 
 	pageDir := filepath.Clean(filepath.Join(HTML_OUT_DIR, page.Path, PAGE_BODY_OUT_FILE))
 
-	return func(w http.ResponseWriter, r *http.Request, def utils.Hello3, buffer *bytes.Buffer) {
+	return func(w http.ResponseWriter, r *http.Request, def utils.Config, buffer *bytes.Buffer) {
 
 			pageTpl, err := template.ParseFiles(pageDir)
 			if err != nil {
@@ -57,14 +57,14 @@ func getStaticPageClosure(page PageProps) (func(http.ResponseWriter, *http.Reque
 }		
 
 			
-func getDynamicRouteClosure(route RouteProps) (func(http.ResponseWriter, *http.Request,utils.Hello3, *bytes.Buffer), error) {
+func getDynamicRouteClosure(route RouteProps) (func(http.ResponseWriter, *http.Request,utils.Config, *bytes.Buffer), error) {
 
 	routeFn := userFunctionWrapper(route.Handler, route.ParamType)
 	if routeFn == nil {
 		return nil, errors.New("invalid handlerParams")
 	}
 
-	return func(w http.ResponseWriter, r *http.Request, dep utils.Hello3, buffer *bytes.Buffer) {
+	return func(w http.ResponseWriter, r *http.Request, dep utils.Config, buffer *bytes.Buffer) {
 			err := routeFn(w, r, dep).Render(r.Context(), buffer)
 			if err != nil {
 				//set some error stuff
@@ -75,11 +75,11 @@ func getDynamicRouteClosure(route RouteProps) (func(http.ResponseWriter, *http.R
 }
 
 			
-func getStaticRouteClosure(route RouteProps) (func(http.ResponseWriter, *http.Request,utils.Hello3, *bytes.Buffer), error) {
+func getStaticRouteClosure(route RouteProps) (func(http.ResponseWriter, *http.Request,utils.Config, *bytes.Buffer), error) {
 
 	pageDir := filepath.Clean(filepath.Join(HTML_OUT_DIR, route.Path, ROUTE_OUT_FILE))
 
-	return func(w http.ResponseWriter, r *http.Request, dep utils.Hello3, buffer *bytes.Buffer) {
+	return func(w http.ResponseWriter, r *http.Request, dep utils.Config, buffer *bytes.Buffer) {
 
 			pageTpl, err := template.ParseFiles(pageDir)
 			if err != nil {
@@ -93,7 +93,7 @@ func getStaticRouteClosure(route RouteProps) (func(http.ResponseWriter, *http.Re
 }
 
 
-func getStaticFullPageClosure(page PageProps, index IndexProps, indexPath string) (func(http.ResponseWriter, *http.Request, utils.Hello3, *bytes.Buffer), error) {
+func getStaticFullPageClosure(page PageProps, index IndexProps, indexPath string) (func(http.ResponseWriter, *http.Request, utils.Config, *bytes.Buffer), error) {
 
 	fullPageDir := filepath.Clean(filepath.Join(HTML_OUT_DIR, page.Path, PAGE_OUT_FILE))
 	pageDir := filepath.Clean(filepath.Join(HTML_OUT_DIR, page.Path, PAGE_BODY_OUT_FILE))
@@ -101,7 +101,7 @@ func getStaticFullPageClosure(page PageProps, index IndexProps, indexPath string
 
 	switch index.HandleType {
 	case IndexHandle:
-		return func(w http.ResponseWriter, r *http.Request, dep utils.Hello3, buffer *bytes.Buffer) {
+		return func(w http.ResponseWriter, r *http.Request, dep utils.Config, buffer *bytes.Buffer) {
 
 			indexTpl, err := template.ParseFiles(indexDir)
 			if err != nil {
@@ -118,7 +118,7 @@ func getStaticFullPageClosure(page PageProps, index IndexProps, indexPath string
 		}, nil
 
 	case IndexRender:
-		return func(w http.ResponseWriter, r *http.Request, dep utils.Hello3, buffer *bytes.Buffer) {
+		return func(w http.ResponseWriter, r *http.Request, dep utils.Config, buffer *bytes.Buffer) {
 			fullPageTpl, err := template.ParseFiles(fullPageDir)
 			if err != nil {
 				panic(fmt.Errorf("Error parsing pre-rendered %s from path: %s\n%v", PAGE_OUT_FILE, pageDir, err))
@@ -132,7 +132,7 @@ func getStaticFullPageClosure(page PageProps, index IndexProps, indexPath string
 }		
 
 
-func getDynamicFullPageClosure(page PageProps, index IndexProps, indexPath string) (func(http.ResponseWriter, *http.Request,utils.Hello3, *bytes.Buffer), error) {
+func getDynamicFullPageClosure(page PageProps, index IndexProps, indexPath string) (func(http.ResponseWriter, *http.Request,utils.Config, *bytes.Buffer), error) {
 
 	pageFn := userFunctionWrapper(page.Handler, page.ParamType)
 	if pageFn == nil {
@@ -146,7 +146,7 @@ func getDynamicFullPageClosure(page PageProps, index IndexProps, indexPath strin
 			return nil, errors.New("invalid handlerParams")
 		}
 
-		return func(w http.ResponseWriter, r *http.Request, dep utils.Hello3, buffer *bytes.Buffer) {
+		return func(w http.ResponseWriter, r *http.Request, dep utils.Config, buffer *bytes.Buffer) {
 			err := indexFn(w, r, dep).Render(templ.WithChildren(r.Context(), pageFn(w, r, dep)), buffer)
 			if err != nil {
 				//set some error stuff
@@ -157,7 +157,7 @@ func getDynamicFullPageClosure(page PageProps, index IndexProps, indexPath strin
 
 		dir := filepath.Clean(filepath.Join(HTML_OUT_DIR, indexPath, INDEX_OUT_FILE))
 
-		return func(w http.ResponseWriter, r *http.Request, dep utils.Hello3, buffer *bytes.Buffer) {
+		return func(w http.ResponseWriter, r *http.Request, dep utils.Config, buffer *bytes.Buffer) {
 
 			indexTpl, err := template.ParseFiles(dir)
 			if err != nil {
@@ -184,26 +184,26 @@ func getDynamicFullPageClosure(page PageProps, index IndexProps, indexPath strin
 }
 
 
-func userFunctionWrapper(fn interface{}, paramType ParamType) func(http.ResponseWriter, *http.Request, utils.Hello3) templ.Component {
+func userFunctionWrapper(fn interface{}, paramType ParamType) func(http.ResponseWriter, *http.Request, utils.Config) templ.Component {
 	switch paramType {
 	case def:
 		setFn := fn.(func() templ.Component)
-		return func(w http.ResponseWriter, r *http.Request, dep utils.Hello3) templ.Component {
+		return func(w http.ResponseWriter, r *http.Request, dep utils.Config) templ.Component {
 			return setFn()
 		}
 	case dep:
-		setFn := fn.(func(utils.Hello3) templ.Component)
-		return func(w http.ResponseWriter, r *http.Request, dep utils.Hello3) templ.Component {
+		setFn := fn.(func(utils.Config) templ.Component)
+		return func(w http.ResponseWriter, r *http.Request, dep utils.Config) templ.Component {
 			return setFn(dep)
 		}
 	case resReq:
 		setFn := fn.(func(http.ResponseWriter, *http.Request) templ.Component)
-		return func(w http.ResponseWriter, r *http.Request, dep utils.Hello3) templ.Component {
+		return func(w http.ResponseWriter, r *http.Request, dep utils.Config) templ.Component {
 			return setFn(w, r)
 		}
 	case resReqDep:
-		setFn := fn.(func(http.ResponseWriter, *http.Request, utils.Hello3) templ.Component)
-		return func(w http.ResponseWriter, r *http.Request, dep utils.Hello3) templ.Component {
+		setFn := fn.(func(http.ResponseWriter, *http.Request, utils.Config) templ.Component)
+		return func(w http.ResponseWriter, r *http.Request, dep utils.Config) templ.Component {
 			return setFn(w, r, dep)
 		}
 	default:
@@ -212,7 +212,7 @@ func userFunctionWrapper(fn interface{}, paramType ParamType) func(http.Response
 }		
 
 			
-func executeAppropriateFn(w http.ResponseWriter, r *http.Request, dep utils.Hello3, buffer *bytes.Buffer, page func(w http.ResponseWriter, r *http.Request, dep utils.Hello3, buffer *bytes.Buffer), boostPage func(w http.ResponseWriter, r *http.Request, dep utils.Hello3, buffer *bytes.Buffer), index func(w http.ResponseWriter, r *http.Request, dep utils.Hello3, buffer *bytes.Buffer), boostIndex func(w http.ResponseWriter, r *http.Request, dep utils.Hello3, buffer *bytes.Buffer)) {
+func executeAppropriateFn(w http.ResponseWriter, r *http.Request, dep utils.Config, buffer *bytes.Buffer, page func(w http.ResponseWriter, r *http.Request, dep utils.Config, buffer *bytes.Buffer), boostPage func(w http.ResponseWriter, r *http.Request, dep utils.Config, buffer *bytes.Buffer), index func(w http.ResponseWriter, r *http.Request, dep utils.Config, buffer *bytes.Buffer), boostIndex func(w http.ResponseWriter, r *http.Request, dep utils.Config, buffer *bytes.Buffer)) {
 	requestType := determineRequest(r)
 	switch requestType {
 	case ErrorRequest:
