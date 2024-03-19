@@ -206,7 +206,6 @@ func getSortedFunctions(dirFiles map[string]map[string][]tempDir) ([]string, []s
 				err := sf.setIndexFunction(
 					gd,
 					leafPath,
-					&needImport,
 					funcConfig{EXPORTED_INDEX_STATIC, IndexRender},
 					funcConfig{EXPORTED_INDEX, IndexHandle},
 				)
@@ -247,10 +246,13 @@ func getSortedFunctions(dirFiles map[string]map[string][]tempDir) ([]string, []s
 		}
 	}
 
+	fmt.Println("sf.imports", sf.imports)
+
 	var importFinal []string
 	for key := range sf.imports {
 		importFinal = append(importFinal, key)
 	}
+	fmt.Println("importFinal", importFinal)
 
 	var pathToIndexFinal []string
 	for path, index := range sf.pathToIndex {
@@ -363,7 +365,7 @@ func (sf *sortedFunctionsByFunctionality) setPageFunction(gd tempDir, leafPath s
 	return nil
 }
 
-func (sf *sortedFunctionsByFunctionality) setIndexFunction(gd tempDir, leafPath string, needImport *bool, static funcConfig, dynamic funcConfig) error {
+func (sf *sortedFunctionsByFunctionality) setIndexFunction(gd tempDir, leafPath string, static funcConfig, dynamic funcConfig) error {
 	fmt.Println("   index.go")
 
 	expFns, pkName, err := getExportedFuctions(gd.FilePath)
@@ -422,7 +424,8 @@ func (sf *sortedFunctionsByFunctionality) setIndexFunction(gd tempDir, leafPath 
 
 		sf.addToSortedFunctions(fnType, fnProps, expFn, indexPath, leafPath)
 
-		*needImport = true
+		sf.imports[fmt.Sprintf(`"%s%s"`, PROJECT_PACKAGE, filepath.Dir(gd.FilePath))] = ""
+
 		fmt.Printf("   - Extracted -> func %s\n", expFn)
 	}
 	return nil
