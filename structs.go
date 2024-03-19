@@ -34,19 +34,6 @@ type Handler struct {
 	HandleType
 }
 
-// so the 3rd type of function will be known at BUILD, so we must create this type then? i.e below
-// t := reflect.TypeOf(v) // main.MyStruct
-// type ResReqDepHandleFunc struct {
-// 	Path    string
-// 	Handler func(w http.ResponseWriter, r *http.Request, main.MyStruct ) templ.Component
-// }
-
-// Proof of Concept
-// temporary := temp.Temp{}
-// t := reflect.TypeOf(temporary)
-// fmt.Println("Type of v:", t)
-// fmt.Println("Package Path:", t.PkgPath())
-
 /**
  * Structs used to organize 'route.go', 'page.go' & 'index.go' handlers for build-files
  **/

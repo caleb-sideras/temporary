@@ -246,13 +246,10 @@ func getSortedFunctions(dirFiles map[string]map[string][]tempDir) ([]string, []s
 		}
 	}
 
-	fmt.Println("sf.imports", sf.imports)
-
 	var importFinal []string
 	for key := range sf.imports {
 		importFinal = append(importFinal, key)
 	}
-	fmt.Println("importFinal", importFinal)
 
 	var pathToIndexFinal []string
 	for path, index := range sf.pathToIndex {
@@ -552,17 +549,6 @@ func getExportedFuctions(path string) (map[string]fnType, string, error) {
 					for _ = range param.Names {
 						exprDetails := ExtractExprDetails(param.Type)
 						fnType.Params = append(fnType.Params, formatParams(exprDetails))
-						// if isHTTPResponseWriter(param.Type) {
-						// 	fmt.Println("http.ResponseWriter", ExtractExprDetails(param.Type))
-						// 	fnType.Params = append(fnType.Params, "http.ResponseWriter")
-						// } else if isHTTPRequest(param.Type) {
-						// 	fmt.Println("http.Request", ExtractExprDetails(param.Type))
-						// 	fnType.Params = append(fnType.Params, "http.Request")
-						// } else {
-						// 	fmt.Println("User Defined", ExtractExprDetails(param.Type))
-						// 	// BUG: adds name of param opposed to name of param type
-						// 	fnType.Params = append(fnType.Params, name.Name)
-						// }
 					}
 				}
 			}
