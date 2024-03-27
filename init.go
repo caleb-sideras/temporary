@@ -173,7 +173,7 @@ func getStaticPageClosureStr(depType string) string {
 	return `
 func getStaticPageClosure(page PageProps) (func(http.ResponseWriter, *http.Request, ` + depType + `, *bytes.Buffer), error) {
 
-	pageDir := filepath.Clean(filepath.Join(HTML_OUT_DIR, page.Path, PAGE_BODY_OUT_FILE))
+	pageDir := filepath.Clean(filepath.Join(HTML_OUT_DIR, page.Path, PAGE_BODY_OUT_FILE_W_METADATA))
 
 	return func(w http.ResponseWriter, r *http.Request, def ` + depType + `, buffer *bytes.Buffer) {
 

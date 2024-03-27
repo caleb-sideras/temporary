@@ -44,7 +44,7 @@ func getDynamicPageClosure(page PageProps, index IndexProps) (func(w http.Respon
 
 func getStaticPageClosure(page PageProps) (func(http.ResponseWriter, *http.Request, utils.Config, *bytes.Buffer), error) {
 
-	pageDir := filepath.Clean(filepath.Join(HTML_OUT_DIR, page.Path, PAGE_BODY_OUT_FILE))
+	pageDir := filepath.Clean(filepath.Join(HTML_OUT_DIR, page.Path, PAGE_BODY_OUT_FILE_W_METADATA))
 
 	return func(w http.ResponseWriter, r *http.Request, def utils.Config, buffer *bytes.Buffer) {
 
