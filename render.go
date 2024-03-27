@@ -150,9 +150,6 @@ func (g *Temp) Render() {
 
 		var buffer bytes.Buffer
 
-		mData := initPageMetadataVar(pageProps.Metadata)
-		buffer.Write(mData.Bytes())
-
 		err = pageOut.Render(context.Background(), &buffer)
 		if err != nil {
 			panic(err)
@@ -163,7 +160,31 @@ func (g *Temp) Render() {
 			panic(err)
 		}
 
-		pathAndTagBody, err := readFileAndGenerateETag(HTML_OUT_DIR, filepath.Join(pageProps.Path, PAGE_BODY_OUT_FILE))
+		// page-body-metadata.html
+		fmt.Println("   -", PAGE_BODY_OUT_FILE_W_METADATA)
+
+		fbm, err := utils.CreateFile(filepath.Join(pageProps.Path, PAGE_BODY_OUT_FILE_W_METADATA), HTML_OUT_DIR)
+		if err != nil {
+			panic(err)
+		}
+		defer fbm.Close()
+
+		var bufferM bytes.Buffer
+
+		pageMetadata := initPageMetadataVar(pageProps.Metadata)
+		bufferM.Write(pageMetadata.Bytes())
+
+		err = pageOut.Render(context.Background(), &bufferM)
+		if err != nil {
+			panic(err)
+		}
+
+		_, err = fbm.Write(bufferM.Bytes())
+		if err != nil {
+			panic(err)
+		}
+
+		pathAndTagBody, err := readFileAndGenerateETag(HTML_OUT_DIR, filepath.Join(pageProps.Path, PAGE_BODY_OUT_FILE_W_METADATA))
 		if err != nil {
 			panic(err)
 		}

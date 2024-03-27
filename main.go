@@ -25,19 +25,21 @@ const (
 	ROUTE    = "route"
 	ETAG     = "etag_file"
 	BODY     = "-body"
+	MET_TAG  = "-metadata"
 	METADATA = "Metadata"
 
-	PAGE_BODY          = PAGE + BODY
-	PAGE_FILE          = PAGE + GO_EXT
-	PAGE_JS_FILE       = PAGE + JS_EXT
-	PAGE_TS_FILE       = PAGE + TS_EXT
-	INDEX_FILE         = INDEX + GO_EXT
-	ROUTE_FILE         = ROUTE + GO_EXT
-	INDEX_OUT_FILE     = INDEX + HTML_EXT
-	PAGE_OUT_FILE      = PAGE + HTML_EXT
-	PAGE_BODY_OUT_FILE = PAGE_BODY + HTML_EXT
-	ROUTE_OUT_FILE     = ROUTE + HTML_EXT
-	ETAG_FILE          = ETAG + TXT_EXT
+	PAGE_BODY                     = PAGE + BODY
+	PAGE_FILE                     = PAGE + GO_EXT
+	PAGE_JS_FILE                  = PAGE + JS_EXT
+	PAGE_TS_FILE                  = PAGE + TS_EXT
+	INDEX_FILE                    = INDEX + GO_EXT
+	ROUTE_FILE                    = ROUTE + GO_EXT
+	INDEX_OUT_FILE                = INDEX + HTML_EXT
+	PAGE_OUT_FILE                 = PAGE + HTML_EXT
+	PAGE_BODY_OUT_FILE            = PAGE_BODY + HTML_EXT
+	PAGE_BODY_OUT_FILE_W_METADATA = PAGE_BODY + MET_TAG + HTML_EXT
+	ROUTE_OUT_FILE                = ROUTE + HTML_EXT
+	ETAG_FILE                     = ETAG + TXT_EXT
 
 	HTML_OUT_DIR = "./static/html/"
 )

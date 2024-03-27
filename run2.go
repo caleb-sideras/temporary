@@ -50,7 +50,7 @@ func getStaticPageClosure(page PageProps) (func(http.ResponseWriter, *http.Reque
 
 			pageTpl, err := template.ParseFiles(pageDir)
 			if err != nil {
-				panic(fmt.Errorf("Error parsing pre-rendered %s from path: %s\n%v", PAGE_BODY_OUT_FILE, pageDir, err))
+				panic(fmt.Errorf("Error parsing pre-rendered %s from path: %s\n%v", PAGE_BODY_OUT_FILE_W_METADATA, pageDir, err))
 			}
 
 			pageTpl.Execute(buffer, nil)
@@ -100,23 +100,29 @@ func getStaticFullPageClosure(page PageProps, index IndexProps, indexPath string
 
 	fullPageDir := filepath.Clean(filepath.Join(HTML_OUT_DIR, page.Path, PAGE_OUT_FILE))
 	pageDir := filepath.Clean(filepath.Join(HTML_OUT_DIR, page.Path, PAGE_BODY_OUT_FILE))
-	indexDir := filepath.Clean(filepath.Join(HTML_OUT_DIR, indexPath, INDEX_OUT_FILE))
 
 	switch index.HandleType {
 	case IndexHandle:
+		indexFn := userFunctionWrapper(index.Handler, index.ParamType)
+		if indexFn == nil {
+			return nil, errors.New("invalid handlerParams")
+		}
+
+		meta := convertStringListToBytesBuffer(append(index.Metadata, page.Metadata...))
+
 		return func(w http.ResponseWriter, r *http.Request, dep utils.Config, buffer *bytes.Buffer) {
 
-			indexTpl, err := template.ParseFiles(indexDir)
-			if err != nil {
-				panic(fmt.Errorf("Error parsing pre-rendered %s from path: %s\n%v", INDEX_OUT_FILE, indexDir, err))
-			}
-
-			_, err = indexTpl.New("page").ParseFiles(pageDir)
+			pageTpl, err := template.ParseFiles(pageDir)
 			if err != nil {
 				panic(fmt.Errorf("Error parsing pre-rendered %s from path: %s\n%v", PAGE_BODY_OUT_FILE, pageDir, err))
 			}
 
-			indexTpl.Execute(buffer, nil)
+			err = indexFn(w, r, dep).Render(templ.WithChildren(r.Context(), templ.FromGoHTML(pageTpl, nil)), buffer)
+			if err != nil {
+				//set some error stuff
+			}
+
+			addMetadataIntoBuffer(buffer, meta)
 
 		}, nil
 
