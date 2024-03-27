@@ -20,11 +20,12 @@ const (
 	EXPORTED_PAGE         = "Page"
 	EXPORTED_PAGE_STATIC  = "Page_"
 
-	PAGE  = "page"
-	INDEX = "index"
-	ROUTE = "route"
-	ETAG  = "etag_file"
-	BODY  = "-body"
+	PAGE     = "page"
+	INDEX    = "index"
+	ROUTE    = "route"
+	ETAG     = "etag_file"
+	BODY     = "-body"
+	METADATA = "Metadata"
 
 	PAGE_BODY          = PAGE + BODY
 	PAGE_FILE          = PAGE + GO_EXT

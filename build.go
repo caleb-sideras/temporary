@@ -24,6 +24,10 @@ type fnType struct {
 	Params []string // Param types
 }
 
+type varType struct {
+	Rtn string // Return type
+}
+
 var FILE_CHECK_LIST = map[string]bool{
 	INDEX_FILE:   true,
 	PAGE_FILE:    true,
@@ -319,10 +323,18 @@ func (sf *sortedFunctionsByFunctionality) setRouteFunction(gd tempDir, leafPath 
 func (sf *sortedFunctionsByFunctionality) setPageFunction(gd tempDir, leafPath string, needImport *bool, static funcConfig, dynamic funcConfig) error {
 	fmt.Println("   page.go")
 
+	// BUG: if user defines `Page()` AND `Page_()` we'll run into some problems
 	expFns, pkName, err := getExportedFuctions(gd.FilePath)
 	if err != nil {
 		return err
 	}
+
+	expVars, err := getExportedVars(gd.FilePath)
+	if err != nil {
+		return err
+	}
+
+	fmtVars := determineVars(expVars, pkName)
 
 	for expFn, expT := range expFns {
 
@@ -352,7 +364,9 @@ func (sf *sortedFunctionsByFunctionality) setPageFunction(gd tempDir, leafPath s
 		 *	  ParamType
 		 * }
 		 **/
-		fnProps := fmt.Sprintf(`{"%s", %s.%s, %d},`, leafPath, pkName, expFn, fnParams)
+
+		fnProps := fmt.Sprintf(`{"%s", %s.%s, %d, %s},`, leafPath, pkName, expFn, fnParams, fmtVars)
+		fmt.Println("FNPROPS", fnProps)
 
 		sf.addToSortedFunctions(fnType, fnProps, expFn, "", "")
 
@@ -369,6 +383,13 @@ func (sf *sortedFunctionsByFunctionality) setIndexFunction(gd tempDir, leafPath 
 	if err != nil {
 		return err
 	}
+
+	expVars, err := getExportedVars(gd.FilePath)
+	if err != nil {
+		return err
+	}
+
+	fmtVars := determineVars(expVars, pkName)
 
 	for expFn, expT := range expFns {
 
@@ -417,7 +438,7 @@ func (sf *sortedFunctionsByFunctionality) setIndexFunction(gd tempDir, leafPath 
 		 *	  HandleType
 		 * }
 		 **/
-		fnProps := fmt.Sprintf(`{"%s", %s.%s, %d, %d}`, indexPath, pkName, expFn, fnParams, fnType)
+		fnProps := fmt.Sprintf(`{"%s", %s.%s, %d, %d, %s}`, indexPath, pkName, expFn, fnParams, fnType, fmtVars)
 
 		sf.addToSortedFunctions(fnType, fnProps, expFn, indexPath, leafPath)
 
@@ -506,6 +527,66 @@ func determineFunctionDefinition(expT fnType) error {
 	return nil
 }
 
+func determineVars(expVars map[string]varType, pkName string) string {
+
+	var fmtVars string
+	metadata := "[]string{}"
+	for name, _ := range expVars {
+		switch name {
+		case METADATA:
+			metadata = fmt.Sprintf("%s.%s", pkName, METADATA)
+		default:
+			fmt.Println("WHAT HAPPENED HERE")
+		}
+	}
+	fmtVars = fmt.Sprintf("%s", metadata)
+	return fmtVars
+}
+
+// only return USABLE exported variables
+func getExportedVars(path string) (map[string]varType, error) {
+	node, err := getAstVals(path)
+	if err != nil {
+		return nil, fmt.Errorf("   - Error parsing file: %s\n%s", path, err)
+	}
+
+	expVars := make(map[string]varType)
+
+	ast.Inspect(node, func(n ast.Node) bool {
+		switch x := n.(type) {
+		case *ast.GenDecl:
+			if x.Tok == token.VAR {
+				for _, spec := range x.Specs {
+					vspec, ok := spec.(*ast.ValueSpec)
+					if !ok {
+						continue
+					}
+					for _, name := range vspec.Names {
+						if name.IsExported() {
+							var varType varType
+							if name.Name == METADATA {
+								if vspec.Type != nil {
+									switch typeSpec := vspec.Type.(type) {
+									case *ast.ArrayType:
+										if elt, ok := typeSpec.Elt.(*ast.Ident); ok && elt.Name == "string" {
+											varType.Rtn = "[]string"
+										}
+									}
+								}
+							}
+							expVars[name.Name] = varType
+						}
+					}
+				}
+			}
+		}
+		return true // Continue inspecting the rest of the AST.
+	})
+
+	return expVars, nil
+}
+
+// returns ALL types of exported functions
 func getExportedFuctions(path string) (map[string]fnType, string, error) {
 
 	node, err := getAstVals(path)
@@ -521,6 +602,7 @@ func getExportedFuctions(path string) (map[string]fnType, string, error) {
 		case *ast.File:
 			pkName = x.Name.Name
 		case *ast.FuncDecl:
+			// issue can arise if funcs are NOT exported?
 			if !x.Name.IsExported() {
 				break
 			}

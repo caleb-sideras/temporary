@@ -1,15 +1,17 @@
 package temporary
 
 import (
-	"calebsideras.com/temporary/temporary/utils"
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
-	"github.com/a-h/templ"
 	"html/template"
 	"net/http"
 	"os"
 	"path/filepath"
+
+	"calebsideras.com/temporary/temporary/utils"
+	"github.com/a-h/templ"
 )
 
 // Render() renders all static files defined by the user
@@ -38,17 +40,28 @@ func (g *Temp) Render() {
 			continue
 		}
 
-		err = templOut.Render(templ.WithChildren(context.Background(), utils.PageTemplate()), fp)
+		var buffer bytes.Buffer
+
+		err = templOut.Render(templ.WithChildren(context.Background(), utils.PageTemplate()), &buffer)
 		if err != nil {
 			panic(err)
 		}
 
-		pathAndTagPage, err := readFileAndGenerateETag(HTML_OUT_DIR, filepath.Join(path, PAGE_OUT_FILE))
+		metadata := convertStringListToBytesBuffer(indexProps.Metadata)
+
+		addMetadataIntoBuffer(&buffer, metadata)
+
+		_, err = fp.Write(buffer.Bytes())
 		if err != nil {
 			panic(err)
 		}
 
-		output += pathAndTagPage
+		// pathAndTagPage, err := readFileAndGenerateETag(HTML_OUT_DIR, filepath.Join(path, PAGE_OUT_FILE))
+		// if err != nil {
+		// 	panic(err)
+		// }
+
+		// output += pathAndTagPage
 
 	}
 
@@ -78,10 +91,12 @@ func (g *Temp) Render() {
 			panic(fmt.Errorf("Error invoking page.go func from path: %s", pageProps.Path))
 		}
 
+		metadata := convertStringListToBytesBuffer(pageProps.Metadata)
+
 		// page.html
 		switch indexProps.HandleType {
 		case IndexRender:
-			// parse ALREADY rendered static file
+			// parse ALREADY rendered index static file
 			dir := filepath.Clean(filepath.Join(HTML_OUT_DIR, indexPath, INDEX_OUT_FILE))
 			indexTpl, err := template.ParseFiles(dir)
 			if err != nil {
@@ -96,11 +111,26 @@ func (g *Temp) Render() {
 
 			// parse & execute
 			_, err = indexTpl.New("page").Parse(string(pageTpl))
-			indexTpl.Execute(f, nil)
 
 			if err != nil {
 				panic(fmt.Errorf("Error converting page.go output from path: %s to template.HTML\n%v", pageProps.Path, err))
 			}
+
+			var buffer bytes.Buffer
+
+			err = indexTpl.Execute(&buffer, nil)
+
+			if err != nil {
+				panic(fmt.Errorf("Error executing buffer of path: %s\n%v", pageProps.Path, err))
+			}
+
+			addMetadataIntoBuffer(&buffer, metadata)
+
+			_, err = f.Write(buffer.Bytes())
+			if err != nil {
+				panic(err)
+			}
+
 		}
 
 		pathAndTagPage, err := readFileAndGenerateETag(HTML_OUT_DIR, filepath.Join(pageProps.Path, PAGE_OUT_FILE))
@@ -118,7 +148,17 @@ func (g *Temp) Render() {
 		}
 		defer fb.Close()
 
-		err = pageOut.Render(context.Background(), fb)
+		var buffer bytes.Buffer
+
+		mData := initPageMetadataVar(pageProps.Metadata)
+		buffer.Write(mData.Bytes())
+
+		err = pageOut.Render(context.Background(), &buffer)
+		if err != nil {
+			panic(err)
+		}
+
+		_, err = fb.Write(buffer.Bytes())
 		if err != nil {
 			panic(err)
 		}
@@ -173,6 +213,7 @@ func (g *Temp) Render() {
 
 }
 
+// TODO: needs to be generated
 func (g Temp) invokeHandlerFunction(params ParamType, fn interface{}, w DummyResponseWriter, r *http.Request) (templ.Component, error) {
 
 	var templOut templ.Component

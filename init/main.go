@@ -9,22 +9,22 @@ import (
 
 func main() {
 
-	// inputFile, err := os.Open("../definitions.txt")
-	// if err != nil {
-	// 	panic(err)
-	// }
-	// defer inputFile.Close()
+	inputFile, err := os.Open("../definitions.txt")
+	if err != nil {
+		panic(err)
+	}
+	defer inputFile.Close()
 
-	// outputFile, err := os.Create("../definitions.go")
-	// if err != nil {
-	// 	panic(err)
-	// }
-	// defer outputFile.Close()
+	outputFile, err := os.Create("../definitions.go")
+	if err != nil {
+		panic(err)
+	}
+	defer outputFile.Close()
 
-	// _, err = io.Copy(outputFile, inputFile)
-	// if err != nil {
-	// 	panic(err)
-	// }
+	_, err = io.Copy(outputFile, inputFile)
+	if err != nil {
+		panic(err)
+	}
 
 	// Default run.go funcs
 	runInputFile, err := os.Open("../run2.txt")

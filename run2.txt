@@ -22,21 +22,35 @@ func getPartialPageBoostFn(partialPageFn func(w http.ResponseWriter, r *http.Req
 
 // CLOSURES - for user defined funcs
 
-func getDynamicPageClosure(page PageProps) (func(w http.ResponseWriter, r *http.Request, dep interface{}, buffer *bytes.Buffer), error) {
+func getDynamicPageClosure(page PageProps, index IndexProps) (func(w http.ResponseWriter, r *http.Request, dep interface{}, buffer *bytes.Buffer), error) {
 
 	pageFn := userFunctionWrapper(page.Handler, page.ParamType)
 	if pageFn == nil {
 		return nil, errors.New("invalid handlerParams")
 	}
 
+	// metadata var
+	var mData bytes.Buffer
+	metadata := append(index.Metadata, page.Metadata...)
+
+	if len(metadata) > 0 {
+		mData.WriteString("<head>\n")
+		for m := range metadata {
+			mData.WriteString(fmt.Sprintf("%s\n", m))
+		}
+		mData.WriteString("</head>")
+	}
+
+	// TODO: metadata func
+
 	return func(w http.ResponseWriter, r *http.Request, dep interface{}, buffer *bytes.Buffer) {
+			buffer.Write(mData.Bytes())
 			err := pageFn(w, r, dep).Render(r.Context(), buffer)
 			if err != nil {
 				//set some error stuff
 			}
 		},
 		nil
-
 }
 
 func getStaticPageClosure(page PageProps) (func(w http.ResponseWriter, r *http.Request, dep interface{}, buffer *bytes.Buffer), error) {

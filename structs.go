@@ -26,6 +26,19 @@ const (
 	paramErr
 )
 
+type VarType int64
+
+const (
+	meta VarType = iota //  name = Metadata, rtn = []string,
+	config
+	unknown
+)
+
+// const (
+// 	MetadataRtn = "[]string"
+// 	ConfigRtn   = "whatever-type"
+// )
+
 type Handler struct {
 	Path    string
 	Handler interface{}
@@ -54,6 +67,8 @@ type PageProps struct {
 	Path    string
 	Handler interface{}
 	ParamType
+	Metadata []string
+	// config type
 	// IndexPath string // TODO: soon will be []string?
 }
 
@@ -62,6 +77,7 @@ type IndexProps struct {
 	Handler interface{}
 	ParamType
 	HandleType
+	Metadata []string
 }
 
 /**

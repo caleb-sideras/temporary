@@ -127,14 +127,17 @@ func getPartialPageBoostFn(partialPageFn func(w http.ResponseWriter, r *http.Req
 
 func getDynamicPageClosureStr(depType string) string {
 	return fmt.Sprintf(`
-func getDynamicPageClosure(page PageProps) (func(w http.ResponseWriter, r *http.Request, dep %s, buffer *bytes.Buffer), error) {
+func getDynamicPageClosure(page PageProps, index IndexProps) (func(w http.ResponseWriter, r *http.Request, dep %s, buffer *bytes.Buffer), error) {
 
 	pageFn := userFunctionWrapper(page.Handler, page.ParamType)
 	if pageFn == nil {
 		return nil, errors.New("invalid handlerParams")
 	}
 
+	mData := initPageMetadataVar(append(index.Metadata, page.Metadata...))
+
 	return func(w http.ResponseWriter, r *http.Request, dep %s, buffer *bytes.Buffer) {
+			buffer.Write(mData.Bytes())
 			err := pageFn(w, r, dep).Render(r.Context(), buffer)
 			if err != nil {
 				//set some error stuff
@@ -280,6 +283,8 @@ func getDynamicFullPageClosure(page PageProps, index IndexProps, indexPath strin
 		return nil, errors.New("invalid handlerParams")
 	}
 
+	meta := convertStringListToBytesBuffer(append(index.Metadata, page.Metadata...))
+
 	switch index.HandleType {
 	case IndexHandle:
 		indexFn := userFunctionWrapper(index.Handler, index.ParamType)
@@ -292,6 +297,9 @@ func getDynamicFullPageClosure(page PageProps, index IndexProps, indexPath strin
 			if err != nil {
 				//set some error stuff
 			}
+
+			addMetadataIntoBuffer(buffer, meta)
+
 		}, nil
 
 	case IndexRender:
@@ -312,11 +320,18 @@ func getDynamicFullPageClosure(page PageProps, index IndexProps, indexPath strin
 			}
 
 			_, err = indexTpl.New("page").Parse(string(pageTpl))
-			indexTpl.Execute(buffer, nil)
 
 			if err != nil {
 				panic(fmt.Errorf("Error converting page.go output from path: %s to template.HTML\n%v", page.Path, err))
 			}
+
+			err = indexTpl.Execute(buffer, nil)
+
+			if err != nil {
+				panic(fmt.Errorf("Error executing template \n%v", err))
+			}
+
+			addMetadataIntoBuffer(buffer, meta)
 
 		}, nil
 	}

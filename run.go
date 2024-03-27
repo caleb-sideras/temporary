@@ -101,7 +101,7 @@ func (g Temp) setDynamicPageHandler(page PageProps, index IndexProps, eTags map[
 		panic(fmt.Errorf("Error creating handler for route %s\n%w", page.Path, err))
 	}
 
-	partialPageFn, err := getDynamicPageClosure(page)
+	partialPageFn, err := getDynamicPageClosure(page, index)
 	if err != nil {
 		panic(fmt.Errorf("Error creating handler for route %s\n%w", page.Path, err))
 	}
@@ -268,8 +268,11 @@ func determineRequest(r *http.Request) requestType {
 }
 
 func setBoostHeaders(w http.ResponseWriter) {
+	// soft-set
+	// find { children... } definition
 	w.Header().Set("HX-Retarget", "global main")
 	w.Header().Set("HX-Reswap", "innerHTML transition:true")
+	// the head htmx-extention removes <head> tag from the request!!!
 }
 
 func setPageHeaders(w http.ResponseWriter, eTagPath string, eTags map[string]string) {
@@ -311,4 +314,95 @@ func writeRequest(w http.ResponseWriter, r *http.Request, eTag string, content [
 	log.Println(fmt.Sprintf("%s %d", logs, http.StatusOK))
 	setHeaders(w, eTag)
 	w.Write(content)
+}
+
+// addMetadataIntoBuffer is used for full-page requests. adds metadata to a new or existing <head></head> tag
+func addMetadataIntoBuffer(buffer *bytes.Buffer, metadata bytes.Buffer) {
+
+	position, hasHead := findInsertPosition(buffer.Bytes())
+
+	if !hasHead {
+		originalMetadata := metadata.Bytes()
+		var modifiedMetadata bytes.Buffer
+
+		modifiedMetadata.WriteString("<head>")
+		modifiedMetadata.Write(originalMetadata)
+		modifiedMetadata.WriteString("</head>")
+
+		metadata.Reset()
+		metadata.Write(modifiedMetadata.Bytes())
+	}
+
+	insertIntoBufferAt(buffer, position, metadata.Bytes())
+}
+
+// ERROR: potential for error if <head></head> is commented inside the html
+// It returns the position (as an integer) and a boolean indicating if a direct insertion inside <head> is possible.
+func findInsertPosition(htmlContent []byte) (int, bool) {
+	headStart := bytes.Index(htmlContent, []byte("<head>"))
+	headEnd := bytes.Index(htmlContent, []byte("</head>"))
+
+	if headStart != -1 && headEnd != -1 {
+		// Found <head>; suggest inserting at the end of the head section.
+		// We return the position right after headStart to insert content within <head>
+		return headEnd, true
+	}
+
+	htmlStart := bytes.Index(htmlContent, []byte("<html>"))
+	if htmlStart != -1 {
+		// If <head> is not found but <html> is, suggest inserting right after <html>.
+		// This is a simplification; in practice, you might adjust to insert after the closing '>'
+		return htmlStart + len("<html>"), false
+	}
+
+	// If neither <head> nor <html> is found, suggest inserting at the beginning.
+	return 0, false
+}
+
+func insertIntoBufferAt(buffer *bytes.Buffer, position int, insertContent []byte) {
+	if position < 0 || position > buffer.Len() {
+		fmt.Println("Invalid position")
+		return
+	}
+
+	// Get the entire current buffer content
+	originalContent := buffer.Bytes()
+
+	// Create a new buffer to hold the modified content
+	var modifiedBuffer bytes.Buffer
+
+	modifiedBuffer.Write(originalContent[:position])
+	modifiedBuffer.Write(insertContent)
+	modifiedBuffer.Write(originalContent[position:])
+
+	// Reset the original buffer and refill with the modified content
+	buffer.Reset()
+	buffer.Write(modifiedBuffer.Bytes())
+}
+
+// initPageMetadataVar converts []string to type bytes.Buffer and pre/appends <head></head>
+func initPageMetadataVar(metadata []string) bytes.Buffer {
+
+	var mData bytes.Buffer
+
+	mData.WriteString("<head>\n")
+	if len(metadata) > 0 {
+		metaBytes := convertStringListToBytesBuffer(metadata)
+		mData.Write(metaBytes.Bytes())
+	}
+	mData.WriteString("</head>")
+
+	return mData
+}
+
+// convertStringListToBytesBuffer converts []string to type bytes.Buffer
+func convertStringListToBytesBuffer(meta []string) bytes.Buffer {
+
+	var mData bytes.Buffer
+
+	for _, m := range meta {
+		mData.WriteString(m + "\n")
+	}
+
+	return mData
 }
